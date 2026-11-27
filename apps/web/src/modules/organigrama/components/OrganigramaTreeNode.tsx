@@ -300,6 +300,12 @@ export const TreeNode = memo(function TreeNode({
                   {capitalizar(o.nombre)}
                   {o.cargo && <span className="ml-1">· {capitalizarEtiqueta(o.cargo)}</span>}
                   {o.jcat && <span className="font-mono text-[10px] ml-1">{o.jcat}</span>}
+                  {o.situacionRevista && o.situacionRevista.toLowerCase() !== 'activo' && (
+                    <span className="italic ml-1">
+                      ({o.situacionRevista}
+                      {o.tieneOtroCargoActivo ? ', ejerce en otro cargo' : ''})
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

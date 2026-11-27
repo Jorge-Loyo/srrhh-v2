@@ -429,16 +429,18 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // pero su situación de revista no es 'activo', así que el filtro de candidatos
   // la deja afuera y el nodo salía "Vacante" sin más. Se informa quién es y si
   // ejerce en otro cargo (se fue) o no (podría seguir al frente). NO se muestra
-  // como titular: si cuenta o no como cubierto es decisión de RRHH.
+  // como titular: si cuenta o no como cubierto es decisión de RRHH. Si el nodo YA
+  // tiene titular activo, el jefe en retención se suma a `otrosTitulares` (antes
+  // quedaba invisible).
   const titularesRetencionMap = new Map<string, TitularSecundario>()
-  if (nodosLibres.length > 0) {
+  if (codigosReparticion.length > 0) {
     const filtroRetencion = {
       hasta: null,
       situacionRevista: { startsWith: 'retencion', mode: 'insensitive' as const },
     }
     const cargosRetencion = await prisma.cargo.findMany({
       where: {
-        codigoRepa: { in: nodosLibres },
+        codigoRepa: { in: codigosReparticion },
         deletedAt: null,
         ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
         ocupaciones: { some: filtroRetencion },
@@ -494,9 +496,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           ).map((o) => o.personaId),
     )
     for (const c of retencionOrdenada) {
-      if (titularesRetencionMap.has(c.codigoRepa!)) continue
       const o = c.ocupaciones[0]!
-      titularesRetencionMap.set(c.codigoRepa!, {
+      const sec: TitularSecundario = {
         personaId: o.persona.id,
         nombre: o.persona.apellidoNombre,
         cargoId: c.id,
@@ -505,7 +506,18 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         jcat: o.codigoJefaturas?.trim().toUpperCase() || null,
         situacionRevista: o.situacionRevista ?? null,
         tieneOtroCargoActivo: conOtroCargoActivo.has(o.persona.id),
-      })
+      }
+      const repa = c.codigoRepa!
+      const titular = personasMap.get(repa)
+      if (titular) {
+        // Nodo cubierto por alguien activo: el jefe en retención se informa aparte.
+        if (titular.personaId === sec.personaId) continue
+        const lista = otrosTitularesMap.get(repa) ?? []
+        lista.push(sec)
+        otrosTitularesMap.set(repa, lista)
+      } else if (!titularesRetencionMap.has(repa)) {
+        titularesRetencionMap.set(repa, sec)
+      }
     }
   }
   // Cargo de conducción VACANTE: cargo vigente sin ocupante en un nodo libre.
