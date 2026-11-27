@@ -602,7 +602,7 @@ export async function aplicarCambiosCargosSalud(
 
   // KPIs
   console.log(`[cargos-salud] KPIs...`)
-  const kpisMap = new Map<KpiKey, { codigoRegistro: string | null; efector: string | null; activos: Set<string>; personas: Set<string> }>()
+  const kpisMap = new Map<string, { codigoRegistro: string | null; efector: string | null; activos: Set<string>; personas: Set<string> }>()
   for (const f of filas) {
     const key = `${f.codReg ?? 'NULL'}|${f.sigla ?? 'NULL'}`
     if (!kpisMap.has(key)) kpisMap.set(key, { codigoRegistro: f.codReg, efector: f.sigla, activos: new Set(), personas: new Set() })
