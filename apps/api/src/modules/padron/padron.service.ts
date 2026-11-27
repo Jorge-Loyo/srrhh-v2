@@ -3695,6 +3695,63 @@ async function resolverConcursoDesignadoPorCuil(
   return concursoPorCuil
 }
 
+// ── CEETPS: enganche del padrón con el designado de un concurso CEETPS ──────
+// Mismo criterio que CPH (CUIL del designado) pero sin validación por
+// especialidad: CEETPS no la tiene. Solo toma concursos con designado cargado
+// (persona o referencia) que el padrón todavía no enganchó (codigoSial null) y
+// que no están desiertos. Prioridad: persona designada > referencia manual.
+const CONCURSO_CEETPS_INDEX_SELECT = {
+  id: true,
+  escalafonId: true,
+  designadoRefCuil: true,
+  designadoRefIdSialRol: true,
+  cargo: { select: { hospital: { select: { sigla: true } } } },
+  personaDesignada: { select: { cuil: true } },
+} satisfies Prisma.ConcursoCeetpsSelect
+
+export type ConcursoCeetpsIndexRow = Prisma.ConcursoCeetpsGetPayload<{
+  select: typeof CONCURSO_CEETPS_INDEX_SELECT
+}>
+
+async function resolverConcursoCeetpsDesignadoPorCuil(): Promise<
+  Map<string, ConcursoCeetpsIndexRow>
+> {
+  const concursos = await prisma.concursoCeetps.findMany({
+    where: {
+      estado: { not: 'desierto' },
+      codigoSial: null,
+      OR: [{ personaDesignadaId: { not: null } }, { designadoRefCuil: { not: null } }],
+    },
+    select: CONCURSO_CEETPS_INDEX_SELECT,
+  })
+  const porCuil = new Map<string, ConcursoCeetpsIndexRow>()
+  for (const cc of concursos) {
+    const c = soloDigitos(cc.personaDesignada?.cuil)
+    if (c && !porCuil.has(c)) porCuil.set(c, cc)
+  }
+  for (const cc of concursos) {
+    const c = soloDigitos(cc.designadoRefCuil)
+    if (c && !porCuil.has(c)) porCuil.set(c, cc)
+  }
+  return porCuil
+}
+
+// Un diff engancha con un concurso CEETPS si coincide la carrera (escalafón) y la
+// sigla del hospital del cargo (el CUIL ya coincidió al resolver el índice).
+export function esValidableContraConcursoCeetps(args: {
+  escalafonDiffId: string | null
+  escalafonConcursoId: string | null | undefined
+  siglaDiff: string | null | undefined
+  siglaConcurso: string | null | undefined
+}): boolean {
+  const carrera = !!args.escalafonDiffId && args.escalafonDiffId === (args.escalafonConcursoId ?? null)
+  const sigla =
+    !!args.siglaDiff &&
+    !!args.siglaConcurso &&
+    args.siglaDiff.trim().toUpperCase() === args.siglaConcurso.trim().toUpperCase()
+  return carrera && sigla
+}
+
 // Decide si un diff del padrón es "validable" contra un concurso designado:
 // coincide la carrera (escalafón) Y la especialidad. Pura y testeable — se usa
 // tanto en el preview como en el enganche automático del Paso 2.
@@ -3946,6 +4003,7 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
       campo: d.campo,
       idSialRol: d.idSialRol,
       cuil: cuilDe(datos),
+      siglas: datos.siglas as string | undefined,
       escalafon: datos.escalafon as string | undefined,
       especialidad: datos.especialidad as string | undefined,
       codigoDeRegistro: datos.codigo_de_registro as string | undefined,
@@ -3961,6 +4019,15 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
       { designadoRefCuil: { not: null } },
     ],
   })
+
+  // CEETPS: concursos con designado cargado que el padrón todavía no enganchó.
+  const concursoCeetpsPorCuil = await resolverConcursoCeetpsDesignadoPorCuil()
+  const concursoCeetpsPorIdSialRol = new Map<string, ConcursoCeetpsIndexRow>()
+  for (const cc of concursoCeetpsPorCuil.values()) {
+    if (cc.designadoRefIdSialRol && !concursoCeetpsPorIdSialRol.has(cc.designadoRefIdSialRol)) {
+      concursoCeetpsPorIdSialRol.set(cc.designadoRefIdSialRol, cc)
+    }
+  }
 
   // Índice por id_sial_rol tipeado manualmente (match directo, prioridad superior).
   const concursoPorIdSialRol = new Map<string, ConcursoIndexRow>()
@@ -4018,6 +4085,31 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   const vinculoPorDiff = new Map<string, string | undefined>()
   for (const p of parsedPendientes) vinculoPorDiff.set(p.diffId, resolverVinculo(p))
 
+  // Enganche CEETPS: solo si el diff no engancha ya con un concurso CPH.
+  const resolverVinculoCeetps = (p: (typeof parsedPendientes)[number]): string | undefined => {
+    if (p.campo === '__alta_desdoblada__') return undefined
+    const cc =
+      concursoCeetpsPorIdSialRol.get(p.idSialRol) ??
+      (p.cuil ? concursoCeetpsPorCuil.get(soloDigitos(p.cuil)) : undefined)
+    if (!cc) return undefined
+    const escalafonDiffId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
+      null
+    return esValidableContraConcursoCeetps({
+      escalafonDiffId,
+      escalafonConcursoId: cc.escalafonId,
+      siglaDiff: p.siglas,
+      siglaConcurso: cc.cargo?.hospital?.sigla,
+    })
+      ? cc.id
+      : undefined
+  }
+  const vinculoCeetpsPorDiff = new Map<string, string | undefined>()
+  for (const p of parsedPendientes) {
+    if (!vinculoPorDiff.get(p.diffId)) vinculoCeetpsPorDiff.set(p.diffId, resolverVinculoCeetps(p))
+  }
+
   const progreso: AprobacionProgreso = {
     estado: 'procesando',
     total: pendientes.length,
@@ -4035,7 +4127,13 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   void (async () => {
     for (const diff of pendientes) {
       try {
-        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId, vinculoPorDiff.get(diff.id))
+        await aprobarDiffNuevoService(
+          snapshotId,
+          diff.id,
+          usuarioId,
+          vinculoPorDiff.get(diff.id),
+          vinculoCeetpsPorDiff.get(diff.id),
+        )
         progreso.aprobados++
       } catch (err) {
         progreso.fallidos.push({
@@ -4070,6 +4168,8 @@ export async function aprobarDiffNuevoService(
   diffId: string,
   usuarioId: string,
   vincularConcursoId?: string,
+  // Enganche con un concurso CEETPS (id de concursos_ceetps). Excluyente con el de CPH.
+  vincularCeetpsId?: string,
 ) {
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
@@ -4177,11 +4277,14 @@ export async function aprobarDiffNuevoService(
     // Si hay concurso a vincular, usar el cargo del concurso directamente
     // (no crear uno nuevo — el cargo ya existe y tiene código asignado)
     let cargo: CargoRow | null = null
-    if (vincularConcursoId) {
-      const concurso = (await tx.concursoCph.findUnique({
-        where: { id: vincularConcursoId },
-        select: { cargo: { select: { id: true, idSial: true, estado: true } } },
-      })) as { cargo: CargoRow } | null
+    if (vincularConcursoId || vincularCeetpsId) {
+      const cargoSelect = { cargo: { select: { id: true, idSial: true, estado: true } } }
+      const concurso = (vincularConcursoId
+        ? await tx.concursoCph.findUnique({ where: { id: vincularConcursoId }, select: cargoSelect })
+        : await tx.concursoCeetps.findUnique({
+            where: { id: vincularCeetpsId },
+            select: cargoSelect,
+          })) as { cargo: CargoRow } | null
       if (concurso?.cargo) {
         cargo = concurso.cargo
         // Paso 2 — ocupar el cargo del concurso: idSial real del padrón +
@@ -4292,7 +4395,7 @@ export async function aprobarDiffNuevoService(
     // (evita violar Ocupacion.idSialRol @unique y duplicar). Sólo en la rama de
     // vínculo a concurso y sólo si no hay ya una ocupación con el idSialRol real
     // (idempotencia ante reejecución de "aprobar todos").
-    if (vincularConcursoId && persona && cargo) {
+    if ((vincularConcursoId || vincularCeetpsId) && persona && cargo) {
       const yaReconciliada = await tx.ocupacion.findUnique({
         where: { idSialRol: diff.idSialRol },
       })
@@ -4420,6 +4523,36 @@ export async function aprobarDiffNuevoService(
       }
     }
 
+    // Vincular concurso CEETPS: asigna la persona, guarda el id SIAL del cargo y,
+    // si ya tiene resolución de designación, lo finaliza (igual que CPH).
+    if (vincularCeetpsId && persona) {
+      const cc = await tx.concursoCeetps.findUnique({
+        where: { id: vincularCeetpsId },
+        select: {
+          resolucionDesignacion: true,
+          concurso: { select: { cargo: { select: { codigo: true } } } },
+        },
+      })
+      await tx.concursoCeetps.update({
+        where: { id: vincularCeetpsId },
+        data: {
+          personaDesignadaId: persona.id,
+          codigoSial: datos.id_sial ?? null,
+          ...(cc?.resolucionDesignacion ? { estado: 'finalizado', subEstado: null } : {}),
+        },
+      })
+      const cargoCodigo = cc?.concurso?.cargo?.codigo ?? datos.ayn ?? 'concurso'
+      await crearNotificacion({
+        tipo: 'autorizacion_resuelta',
+        rolSlug: 'concursales_ceetps',
+        titulo: `Designado en el padrón — ${cargoCodigo}`,
+        mensaje: `${datos.ayn || 'La persona designada'} apareció en el padrón con el rol ${diff.idSialRol} y quedó vinculada al concurso CEETPS.`,
+        origenTipo: 'concurso_ceetps',
+        origenId: vincularCeetpsId,
+        origenKey: `ceetps_padron:${vincularCeetpsId}`,
+      })
+    }
+
     // ── Opción A §5.3: al GESTIONAR un id_sial nuevo, el cargo recién creado
     //    cuenta en el histórico/KPI del MES DE GESTIÓN (now()), NO en la
     //    fechaAsignada del snapshot del padrón (que puede ser de un mes ya
@@ -4482,7 +4615,7 @@ export async function aprobarDiffNuevoService(
     // Marcar diff como aprobado
     await tx.padronDiff.update({
       where: { id: diffId },
-      data: { aprobado: true, resolucion: vincularConcursoId ? 'concurso_vinculado' : 'cargo' },
+      data: { aprobado: true, resolucion: vincularConcursoId || vincularCeetpsId ? 'concurso_vinculado' : 'cargo' },
     })
   }, TRANSACTION_OPTS) // timeout largo: aprobar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 

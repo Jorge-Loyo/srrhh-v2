@@ -539,6 +539,194 @@ export interface OmDisponiblesResponse {
   ordenes: OmDisponible[]
 }
 
+// Cronograma del proceso concursal CEETPS (Etapa 3): un hito por fila, con su fecha.
+// El orden es el del cronograma de referencia (publicación → adjudicación).
+export const CRONOGRAMA_CEETPS_PASOS = [
+  { key: 'publicacion_normativa', label: 'Publicación normativa del concurso en web' },
+  { key: 'inscripcion_desde', label: 'Inscripción y entrega de documentación — desde' },
+  { key: 'inscripcion_hasta', label: 'Inscripción y entrega de documentación — hasta' },
+  { key: 'analisis_admisibilidad', label: 'Análisis de admisibilidad' },
+  { key: 'comunicacion_admitidos', label: 'Comunicación de nómina de inscriptos admitidos y no admitidos' },
+  { key: 'reclamos_admisibilidad', label: 'Recepción de reclamos sobre admisibilidad' },
+  { key: 'respuesta_jurado_admisibilidad', label: 'El jurado responde los casos presentados (admisibilidad)' },
+  { key: 'examen', label: 'Examen' },
+  { key: 'comunicacion_resultado_examen', label: 'Comunicación del resultado del examen' },
+  { key: 'reclamos_nota_examen', label: 'Recepción de reclamos sobre la nota de examen' },
+  { key: 'respuesta_jurado_examen', label: 'El jurado responde los casos presentados (examen)' },
+  { key: 'analisis_curricular', label: 'Análisis curricular' },
+  { key: 'comunicacion_resultado_cv', label: 'Comunicación del resultado del análisis de CV' },
+  { key: 'comunicacion_resultado_reclamos', label: 'Comunicación del resultado de reclamos y nómina que pasa a entrevista' },
+  { key: 'entrevistas_desde', label: 'Entrevistas — desde' },
+  { key: 'entrevistas_hasta', label: 'Entrevistas — hasta' },
+  { key: 'comunicacion_orden_merito', label: 'Comunicación de orden de mérito final' },
+  { key: 'adjudicacion_cargos', label: 'Adjudicación de cargos' },
+] as const
+
+export type ClaveCronogramaCeetps = (typeof CRONOGRAMA_CEETPS_PASOS)[number]['key']
+
+// ── Cadena de fechas de un concurso CEETPS ───────────────────────────────────
+// Las fechas del concurso no pueden ir "para atrás": cada una debe ser igual o
+// posterior a todas las anteriores de la cadena y igual o anterior a las
+// posteriores. Se valida al cargar (front) y al guardar (backend), con esta misma
+// función. Solo se controla la fecha que se está cambiando, así un concurso viejo
+// con fechas desordenadas no bloquea ediciones que no tocan esas fechas.
+// "Adjudicación de cargos" queda fuera de la cadena general (solo se compara con
+// las del cronograma) porque puede ocurrir después de la designación.
+export const CADENA_FECHAS_CEETPS: readonly { clave: string; etiqueta: string }[] = [
+  { clave: 'fechaCaratulacion', etiqueta: 'Fecha de caratulación' },
+  { clave: 'fechaAutorizacion', etiqueta: 'Fecha de autorización' },
+  ...CRONOGRAMA_CEETPS_PASOS.filter((p) => p.key !== 'adjudicacion_cargos').map((p) => ({
+    clave: `cronograma.${p.key}`,
+    etiqueta: p.label,
+  })),
+  { clave: 'fechaIfacs', etiqueta: 'Fecha IFACS' },
+  { clave: 'fechaInsal', etiqueta: 'Fecha INSAL' },
+  { clave: 'fechaAptoMedico', etiqueta: 'Fecha apto médico' },
+  { clave: 'fechaDispoDesignacion', etiqueta: 'Fecha de disposición' },
+]
+
+export type FechasCadenaCeetps = Record<string, string | null | undefined>
+
+function soloFecha(v: string | null | undefined): string | null {
+  const f = (v ?? '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : null
+}
+
+function fechaLegible(f: string): string {
+  const [a, m, d] = f.split('-')
+  return `${d}/${m}/${a}`
+}
+
+/** Aplana un concurso CEETPS (o un parche) a { clave: 'YYYY-MM-DD' } con las claves de la cadena. */
+export function aplanarFechasCeetps(
+  c: {
+    fechaCaratulacion?: string | null
+    fechaAutorizacion?: string | null
+    fechaIfacs?: string | null
+    fechaInsal?: string | null
+    fechaAptoMedico?: string | null
+    fechaDispoDesignacion?: string | null
+    cronograma?: Partial<Record<string, string | null>> | null
+  } | null | undefined,
+): FechasCadenaCeetps {
+  const out: FechasCadenaCeetps = {}
+  if (!c) return out
+  for (const k of [
+    'fechaCaratulacion',
+    'fechaAutorizacion',
+    'fechaIfacs',
+    'fechaInsal',
+    'fechaAptoMedico',
+    'fechaDispoDesignacion',
+  ] as const) {
+    if (k in c) out[k] = soloFecha(c[k])
+  }
+  if (c.cronograma) {
+    for (const [k, v] of Object.entries(c.cronograma)) out[`cronograma.${k}`] = soloFecha(v)
+  }
+  return out
+}
+
+/**
+ * Mensaje de error si algún cambio rompe el orden de la cadena; null si está bien.
+ * `actual` y `cambios` están aplanados (ver aplanarFechasCeetps). Un valor null/''
+ * en `cambios` borra la fecha y no se valida.
+ */
+export function errorEnCadenaFechas(
+  actual: FechasCadenaCeetps,
+  cambios: FechasCadenaCeetps,
+): string | null {
+  const unidas: FechasCadenaCeetps = { ...actual }
+  for (const [k, v] of Object.entries(cambios)) unidas[k] = soloFecha(v)
+
+  const cronograma = CRONOGRAMA_CEETPS_PASOS.map((p) => ({
+    clave: `cronograma.${p.key}`,
+    etiqueta: p.label,
+  }))
+
+  for (const [clave, nuevo] of Object.entries(cambios)) {
+    const valor = soloFecha(nuevo)
+    if (!valor) continue
+    if (valor === soloFecha(actual[clave])) continue // sin cambio
+
+    // Cadena donde vive la fecha: la general, o solo el cronograma para "adjudicación".
+    const cadena = CADENA_FECHAS_CEETPS.some((e) => e.clave === clave)
+      ? CADENA_FECHAS_CEETPS
+      : cronograma.some((e) => e.clave === clave)
+        ? cronograma
+        : null
+    if (!cadena) continue
+    const pos = cadena.findIndex((e) => e.clave === clave)
+    const propia = cadena[pos]!
+    for (let i = 0; i < cadena.length; i++) {
+      if (i === pos) continue
+      const otra = cadena[i]!
+      const f = soloFecha(unidas[otra.clave])
+      if (!f) continue
+      if (i < pos && valor < f) {
+        return `«${propia.etiqueta}» (${fechaLegible(valor)}) no puede ser anterior a «${otra.etiqueta}» (${fechaLegible(f)}).`
+      }
+      if (i > pos && valor > f) {
+        return `«${propia.etiqueta}» (${fechaLegible(valor)}) no puede ser posterior a «${otra.etiqueta}» (${fechaLegible(f)}).`
+      }
+    }
+  }
+  return null
+}
+
+// Jurado CEETPS (Etapa 2): asignación manual. Datos de la persona congelados al asignar.
+export interface MiembroJuradoCeetpsDto {
+  id: string
+  personaId: string
+  rol: 'titular' | 'suplente'
+  orden: number
+  apellidoNombre: string
+  cuil: string
+  hospitalNombre: string | null
+  puesto: string | null
+}
+
+export interface JuradoCeetpsDto {
+  cantTitulares: number | null
+  cantSuplentes: number | null
+  miembros: MiembroJuradoCeetpsDto[]
+}
+
+// Inscripto CEETPS (Etapa 3). Los flags pasa* los calcula el backend contra los
+// puntajes mínimos del concurso: null = todavía no se puede determinar.
+export interface InscriptoCeetpsDto {
+  id: string
+  concursoCeetpsId: string
+  apellido: string
+  nombre: string
+  dni: string | null
+  cuil: string | null
+  email: string | null
+  telefono: string | null
+  observaciones: string | null
+  entregoDocumentacion: boolean
+  admitido: boolean | null
+  motivoNoAdmision: string | null
+  reclamoAdmisibilidad: boolean
+  resultadoReclamoAdmisibilidad: string | null
+  presentoExamen: boolean
+  notaExamen: number | null
+  reclamoExamen: boolean
+  resultadoReclamoExamen: string | null
+  puntajeCv: number | null
+  puntajeEntrevista: number | null
+  ordenMerito: number | null
+  pasaAdmision: boolean | null
+  pasaExamen: boolean | null
+  pasaCv: boolean | null
+  pasaEntrevista: boolean | null
+  finalista: boolean
+  // Empate en las tres notas del orden de mérito (se desempató por apellido).
+  empate: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ConcursoCeetps {
   id: string
   concursoId: string
@@ -588,6 +776,31 @@ export interface ConcursoCeetps {
   altaSial: boolean | null
   codigoSial: string | null
   personaDesignadaId: string | null
+  // Designado cargado por referencia (aún sin persona en el padrón)
+  designadoRefCuil: string | null
+  designadoRefNombre: string | null
+  designadoRefIdSialRol: string | null
+  // Etapa 5 (dispoDesignacion, arriba, es la "Disposición de designación").
+  cargaDocumentacion: boolean | null
+  tramiteDesignacion: 'tad' | 'gene1303' | null
+  fechaAptoMedico: string | null
+  fechaDispoDesignacion: string | null
+  resolucionConvalidacion: string | null
+  proyectoResolucion: boolean | null // "Designación a la firma"
+  resoALaFirma: boolean | null // "Resolución a la firma"
+  fechaResolucion: string | null
+  // Etapa 4: reserva del candidato para el INSAL
+  insalAceptado: boolean | null
+  insalRechazados: string[]
+  inscriptoReservadoId: string | null
+  // Etapa 2: lugares del jurado (la asignación es manual)
+  juradoCantTitulares: number | null
+  juradoCantSuplentes: number | null
+  // Etapa 3: puntaje mínimo de cada paso y fechas del cronograma
+  puntajeMinimoExamen: number | null
+  puntajeMinimoCv: number | null
+  puntajeMinimoEntrevista: number | null
+  cronograma: Partial<Record<ClaveCronogramaCeetps, string | null>>
   observaciones: string | null
   createdAt: string
   updatedAt: string
@@ -1288,6 +1501,8 @@ export interface PersonaFilters {
   idSial?: string
   // Solo personas con una ocupación vigente de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Solo personas activas con un cargo vigente ocupado (candidatos a jurado CEETPS).
+  conCargoVigente?: boolean
   // S21: uniones (OR) de la cascada de catálogo — JSON array de grupos, cada
   // grupo es un AND de {hospitalId,escalafonId,modalidad,puestoCargoId,
   // especialidadPuestoId}; los grupos se combinan con OR. Ver personas.service.

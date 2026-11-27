@@ -20,6 +20,9 @@ export const CAMPOS_ETAPA_2_EN_ADELANTE_CEETPS = [
   'tipoGestion',
   'fechaIfacs',
   'fechaInsal',
+  'insalAceptado',
+  'insalRechazados',
+  'inscriptoReservadoId',
   'expedienteDesignacion',
   'dispoDesignacion',
   'resolucionDesignacion',
@@ -29,12 +32,35 @@ export const CAMPOS_ETAPA_2_EN_ADELANTE_CEETPS = [
   'fechaProyectoDispo',
   'altaSial',
   'codigoSial',
+  'cargaDocumentacion',
+  'tramiteDesignacion',
+  'fechaAptoMedico',
+  'fechaDispoDesignacion',
+  'resolucionConvalidacion',
+  'proyectoResolucion',
+  'resoALaFirma',
+  'fechaResolucion',
+  'puntajeMinimoExamen',
+  'puntajeMinimoCv',
+  'puntajeMinimoEntrevista',
+  'cronograma',
 ] as const satisfies readonly (keyof PatchConcursoCeetpsBody)[]
+
+// Cronograma (JSON): mismas fechas = mismo valor, sin importar el orden de las
+// claves ni las claves en null. Sin fechas ≡ null.
+function normalizarCronograma(v: Record<string, unknown>): string | null {
+  const entradas = Object.entries(v)
+    .filter(([, f]) => f !== null && f !== undefined && f !== '')
+    .sort(([a], [b]) => a.localeCompare(b))
+  return entradas.length ? JSON.stringify(entradas) : null
+}
 
 function normalizar(v: unknown): unknown {
   if (v === undefined || v === null || v === '') return null
   if (v instanceof Date) return v.toISOString().slice(0, 10)
+  if (Array.isArray(v)) return v.length ? JSON.stringify([...v].sort()) : null
   if (typeof v === 'string') return v.trim()
+  if (typeof v === 'object') return normalizarCronograma(v as Record<string, unknown>)
   return v
 }
 

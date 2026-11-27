@@ -402,6 +402,7 @@ model Persona {
   concursos                Concurso[]
   concursosCphDesignado    ConcursoCph[]           @relation("PersonaDesignadaCph")
   concursosCeetpsDesignado ConcursoCeetps[]        @relation("PersonaDesignadaCeetps")
+  miembrosJuradoCeetps     MiembroJuradoCeetps[]
   padronHistorico          PadronHistorico[]
   bajas                    Baja[]
   ordenMeritoIntegrante    OrdenMeritoIntegrante[]
@@ -1245,6 +1246,34 @@ model ConcursoCeetps {
   // cargoSial en ConcursoCph).
   codigoSial              String?              @map("codigo_sial") @db.VarChar(100)
   personaDesignadaId      String?              @map("persona_designada_id") @db.Uuid
+  // Designado cargado por referencia (aún no está en el padrón): solo CUIL + nombre
+  // (+ id SIAL rol opcional). No crea Persona ni ocupa el cargo.
+  designadoRefCuil        String?              @map("designado_ref_cuil") @db.VarChar(11)
+  designadoRefNombre      String?              @map("designado_ref_nombre") @db.VarChar(200)
+  designadoRefIdSialRol   String?              @map("designado_ref_id_sial_rol") @db.VarChar(50)
+  // Etapa 5 (Designación). dispoDesignacion (arriba) es la "Disposición de designación".
+  cargaDocumentacion      Boolean?             @map("carga_documentacion")
+  tramiteDesignacion      String?              @map("tramite_designacion") @db.VarChar(10) // 'tad' | 'gene1303'
+  fechaAptoMedico         DateTime?            @map("fecha_apto_medico") @db.Date
+  fechaDispoDesignacion   DateTime?            @map("fecha_dispo_designacion") @db.Date
+  resolucionConvalidacion String?              @map("resolucion_convalidacion") @db.VarChar(500)
+  proyectoResolucion      Boolean?             @map("proyecto_resolucion") // "Designación a la firma"
+  resoALaFirma            Boolean?             @map("reso_a_la_firma") // "Resolución a la firma"
+  fechaResolucion         DateTime?            @map("fecha_resolucion") @db.Date
+  // Etapa 4: reserva del candidato a notificar por INSAL.
+  // null = sin respuesta, true = aceptó el cargo; si rechaza, se agrega a insalRechazados.
+  insalAceptado           Boolean?             @map("insal_aceptado")
+  insalRechazados         String[]             @default([]) @map("insal_rechazados") @db.Uuid
+  inscriptoReservadoId    String?              @map("inscripto_reservado_id") @db.Uuid
+  // Etapa 2: cantidad de lugares del jurado (la asignación es manual).
+  juradoCantTitulares     Int?                 @map("jurado_cant_titulares")
+  juradoCantSuplentes     Int?                 @map("jurado_cant_suplentes")
+  // Etapa 3: puntaje mínimo que fija el jurado para pasar cada paso.
+  puntajeMinimoExamen     Float?               @map("puntaje_minimo_examen")
+  puntajeMinimoCv         Float?               @map("puntaje_minimo_cv")
+  puntajeMinimoEntrevista Float?               @map("puntaje_minimo_entrevista")
+  // Etapa 3: fechas del cronograma, { clave: 'YYYY-MM-DD' } (claves en CRONOGRAMA_CEETPS_PASOS).
+  cronograma              Json                 @default("{}") @db.JsonB
   observaciones           String?              @db.Text
   createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz
   updatedAt               DateTime             @updatedAt @map("updated_at") @db.Timestamptz
@@ -1256,13 +1285,95 @@ model ConcursoCeetps {
   escalafon             Escalafon    @relation(fields: [escalafonId], references: [id])
   puestoCargoSolicitado PuestoCargo? @relation(fields: [puestoCargoSolicitadoId], references: [id])
   personaDesignada      Persona?     @relation("PersonaDesignadaCeetps", fields: [personaDesignadaId], references: [id])
+  inscriptoReservado    InscriptoCeetps? @relation("InscriptoReservadoCeetps", fields: [inscriptoReservadoId], references: [id], onDelete: SetNull)
   etiquetas             EtiquetaConcursoCeetps[]
+  miembrosJurado        MiembroJuradoCeetps[]
+  inscriptos            InscriptoCeetps[]
+  historialDesignaciones DesignacionHistorialCeetps[]
 
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
   @@index([subEstado])
   @@map("concursos_ceetps")
+}
+
+// Jurado de un concurso CEETPS (Etapa 2): asignación manual de personas con cargo
+// vigente. Los datos de la persona se congelan al asignar (como en el sorteo CPH).
+model MiembroJuradoCeetps {
+  id               String   @id @default(uuid()) @db.Uuid
+  concursoCeetpsId String   @map("concurso_ceetps_id") @db.Uuid
+  personaId        String   @map("persona_id") @db.Uuid
+  rol              String   @db.VarChar(10) // 'titular' | 'suplente'
+  orden            Int
+  apellidoNombre   String   @map("apellido_nombre") @db.VarChar(200)
+  cuil             String   @db.VarChar(11)
+  hospitalNombre   String?  @map("hospital_nombre") @db.VarChar(200)
+  puesto           String?  @db.VarChar(200)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  concursoCeetps ConcursoCeetps @relation(fields: [concursoCeetpsId], references: [id], onDelete: Cascade)
+  persona        Persona        @relation(fields: [personaId], references: [id])
+
+  @@unique([concursoCeetpsId, personaId])
+  @@index([concursoCeetpsId])
+  @@map("miembros_jurado_ceetps")
+}
+
+// Inscripto a un concurso CEETPS y su recorrido por los pasos del proceso:
+// admisibilidad → examen → análisis curricular → entrevista → orden de mérito.
+// Quién "pasó" cada paso NO se guarda: se calcula contra los puntajes mínimos
+// del concurso (ver inscriptos.calc.ts).
+// Candidatos de un concurso CEETPS que no fueron aptos (Etapa 5). Se conserva lo que
+// se había cargado de su designación; `datos` es una foto de esos campos.
+model DesignacionHistorialCeetps {
+  id               String   @id @default(uuid()) @db.Uuid
+  concursoCeetpsId String   @map("concurso_ceetps_id") @db.Uuid
+  inscriptoId      String?  @map("inscripto_id") @db.Uuid
+  apellidoNombre   String   @map("apellido_nombre") @db.VarChar(200)
+  cuil             String?  @db.VarChar(20)
+  motivo           String   @db.VarChar(20) // 'no_apto'
+  numeroNota       String?  @map("numero_nota") @db.VarChar(100)
+  datos            Json     @default("{}") @db.JsonB
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  concursoCeetps ConcursoCeetps @relation(fields: [concursoCeetpsId], references: [id], onDelete: Cascade)
+
+  @@index([concursoCeetpsId])
+  @@map("designaciones_historial_ceetps")
+}
+
+model InscriptoCeetps {
+  id                            String   @id @default(uuid()) @db.Uuid
+  concursoCeetpsId              String   @map("concurso_ceetps_id") @db.Uuid
+  apellido                      String   @db.VarChar(120)
+  nombre                        String   @db.VarChar(120)
+  dni                           String?  @db.VarChar(20)
+  cuil                          String?  @db.VarChar(20)
+  email                         String?  @db.VarChar(200)
+  telefono                      String?  @db.VarChar(40)
+  observaciones                 String?  @db.Text
+  entregoDocumentacion          Boolean  @default(false) @map("entrego_documentacion")
+  admitido                      Boolean? // null = pendiente
+  motivoNoAdmision              String?  @map("motivo_no_admision") @db.Text
+  reclamoAdmisibilidad          Boolean  @default(false) @map("reclamo_admisibilidad")
+  resultadoReclamoAdmisibilidad String?  @map("resultado_reclamo_admisibilidad") @db.Text
+  presentoExamen                Boolean  @default(false) @map("presento_examen")
+  notaExamen                    Float?   @map("nota_examen")
+  reclamoExamen                 Boolean  @default(false) @map("reclamo_examen")
+  resultadoReclamoExamen        String?  @map("resultado_reclamo_examen") @db.Text
+  puntajeCv                     Float?   @map("puntaje_cv")
+  puntajeEntrevista             Float?   @map("puntaje_entrevista")
+  ordenMerito                   Int?     @map("orden_merito")
+  createdAt                     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  concursoCeetps ConcursoCeetps @relation(fields: [concursoCeetpsId], references: [id], onDelete: Cascade)
+  reservadoEn    ConcursoCeetps[] @relation("InscriptoReservadoCeetps")
+
+  @@index([concursoCeetpsId])
+  @@index([cuil])
+  @@map("inscriptos_ceetps")
 }
 
 // =============================================================================

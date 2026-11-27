@@ -4,13 +4,37 @@ import { AppError } from '../../shared/errors/AppError.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { corregirTipoSchema } from '../concursos/corregirTipo.schema.js'
 import { corregirTipoConcursoService } from '../concursos/corregirTipo.service.js'
-import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema, designarCeetpsSchema } from './concursos-ceetps.schema.js'
+import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema, designarCeetpsSchema, asignarDesignadoCeetpsSchema } from './concursos-ceetps.schema.js'
 import {
   listConcursosCeetpsService,
   getConcursoCeetpsByIdService,
   patchConcursoCeetpsService,
   designarConcursoCeetpsService,
+  asignarDesignadoCeetpsService,
+  registrarNoAptoCeetpsService,
+  listarHistorialDesignacionCeetpsService,
 } from './concursos-ceetps.service.js'
+import {
+  documentacionInscriptosSchema,
+  importarInscriptosSchema,
+  inscriptoCeetpsPatchSchema,
+  inscriptoCeetpsSchema,
+} from './inscriptos.schema.js'
+import {
+  createInscriptoCeetpsService,
+  deleteInscriptoCeetpsService,
+  importarInscriptosCeetpsService,
+  listInscriptosCeetpsService,
+  marcarDocumentacionCeetpsService,
+  updateInscriptoCeetpsService,
+} from './inscriptos.service.js'
+import { agregarMiembroJuradoSchema, cantidadesJuradoSchema } from './jurado.schema.js'
+import {
+  agregarMiembroJuradoService,
+  getJuradoCeetpsService,
+  quitarMiembroJuradoService,
+  setCantidadesJuradoService,
+} from './jurado.service.js'
 
 const WRITE_PERMISO = { modulo: 'concursos-ceetps', accion: 'editar' }
 
@@ -59,6 +83,137 @@ export async function concursosCeetpsRoutes(app: FastifyInstance) {
       const body = designarCeetpsSchema.parse(request.body)
       const data = await designarConcursoCeetpsService(request.params.id, body)
       return reply.send({ data })
+    }
+  )
+
+  // POST /:id/asignar-designado — vincula al designado (persona o referencia CUIL+nombre) SIN ocupar el cargo
+  app.post<{ Params: { id: string } }>(
+    '/:id/asignar-designado',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = asignarDesignadoCeetpsSchema.parse(request.body)
+      const data = await asignarDesignadoCeetpsService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/designacion/no-apto — el candidato no fue apto: guarda su historial y vuelve a la Etapa 4
+  app.post<{ Params: { id: string } }>(
+    '/:id/designacion/no-apto',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await registrarNoAptoCeetpsService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // GET /:id/designacion/historial — candidatos anteriores que no fueron aptos
+  app.get<{ Params: { id: string } }>('/:id/designacion/historial', async (request, reply) => {
+    const data = await listarHistorialDesignacionCeetpsService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // ── Etapa 2: jurado (asignación manual, reemplaza el sorteo) ──────────────
+  // GET /:id/jurado — lugares (titulares/suplentes) y miembros asignados
+  app.get<{ Params: { id: string } }>('/:id/jurado', async (request, reply) => {
+    const data = await getJuradoCeetpsService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // PUT /:id/jurado/cantidades — define los lugares (antes de asignar personas)
+  app.put<{ Params: { id: string } }>(
+    '/:id/jurado/cantidades',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = cantidadesJuradoSchema.parse(request.body)
+      const data = await setCantidadesJuradoService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/jurado/miembros — asigna una persona con cargo vigente
+  app.post<{ Params: { id: string } }>(
+    '/:id/jurado/miembros',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = agregarMiembroJuradoSchema.parse(request.body)
+      const data = await agregarMiembroJuradoService(request.params.id, body)
+      return reply.status(201).send({ data })
+    }
+  )
+
+  // DELETE /:id/jurado/miembros/:miembroId — quita un miembro (renumera su rol)
+  app.delete<{ Params: { id: string; miembroId: string } }>(
+    '/:id/jurado/miembros/:miembroId',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await quitarMiembroJuradoService(request.params.id, request.params.miembroId)
+      return reply.send({ data })
+    }
+  )
+
+  // ── Etapa 3: inscriptos y pasos del concurso ─────────────────────────────
+  // GET /:id/inscriptos — con los flags "pasa*" calculados contra los mínimos
+  app.get<{ Params: { id: string } }>('/:id/inscriptos', async (request, reply) => {
+    const data = await listInscriptosCeetpsService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // POST /:id/inscriptos/importar — importa un paso desde las filas de un Excel
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscriptos/importar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = importarInscriptosSchema.parse(request.body)
+      const data = await importarInscriptosCeetpsService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/inscriptos/documentacion — "todos entregaron documentación"
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscriptos/documentacion',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = documentacionInscriptosSchema.parse(request.body)
+      const data = await marcarDocumentacionCeetpsService(request.params.id, body.entregoDocumentacion)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/inscriptos — alta manual
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscriptos',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = inscriptoCeetpsSchema.parse(request.body)
+      const data = await createInscriptoCeetpsService(request.params.id, body)
+      return reply.status(201).send({ data })
+    }
+  )
+
+  // PATCH /:id/inscriptos/:inscriptoId — editar cualquier paso (y el orden de mérito)
+  app.patch<{ Params: { id: string; inscriptoId: string } }>(
+    '/:id/inscriptos/:inscriptoId',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = inscriptoCeetpsPatchSchema.parse(request.body)
+      const data = await updateInscriptoCeetpsService(
+        request.params.id,
+        request.params.inscriptoId,
+        body
+      )
+      return reply.send({ data })
+    }
+  )
+
+  // DELETE /:id/inscriptos/:inscriptoId — baja de un inscripto
+  app.delete<{ Params: { id: string; inscriptoId: string } }>(
+    '/:id/inscriptos/:inscriptoId',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      await deleteInscriptoCeetpsService(request.params.id, request.params.inscriptoId)
+      return reply.status(204).send()
     }
   )
 }

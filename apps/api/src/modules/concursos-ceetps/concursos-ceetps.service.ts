@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client'
-import { documentoOrigenDeConcurso } from '@srrhh/types'
+import { aplanarFechasCeetps, documentoOrigenDeConcurso, errorEnCadenaFechas } from '@srrhh/types'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody } from './concursos-ceetps.schema.js'
+import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody, AsignarDesignadoCeetpsBody } from './concursos-ceetps.schema.js'
+import { cargarConcursoCeetps, cargarConcursoCeetpsEditable } from './concursoEditable.js'
+import { quitarTrazasEtl } from './observaciones.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { calcEstadoCeetps } from './concursosCeetps.calc.js'
 import {
@@ -37,6 +39,9 @@ const CAMPOS_FECHA = new Set<keyof PatchConcursoCeetpsBody>([
   'fechaIfacs',
   'fechaInsal',
   'fechaProyectoDispo',
+  'fechaAptoMedico',
+  'fechaDispoDesignacion',
+  'fechaResolucion',
 ])
 
 // ─── Helper: aplicar rango de fechas al where de Prisma ─────────────────────
@@ -162,7 +167,14 @@ export async function getConcursoCeetpsByIdService(id: string) {
             : null,
         }
       : null
-  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo, documentoOrigen }
+  return {
+    ...concursoCeetps,
+    observaciones: quitarTrazasEtl(concursoCeetps.observaciones),
+    autorizacionPendiente,
+    ultimaAutorizacionRechazada,
+    correccionesTipo,
+    documentoOrigen,
+  }
 }
 
 // ─── S5-1: actualizar campos por fase — estado y subEstado se recalculan ─────
@@ -182,6 +194,22 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
   // solo si el valor CAMBIA: el formulario reenvía todos los campos). El IF de
   // autorización es opcional: solo el expediente es obligatorio para solicitar.
   validarBloqueoEtapa2Ceetps(concursoBase, body, existing)
+
+  // Las fechas del concurso no pueden ir para atrás (solo se controlan las que cambian).
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
+  const errorFechas = errorEnCadenaFechas(
+    aplanarFechasCeetps({
+      fechaCaratulacion: iso(existing.fechaCaratulacion),
+      fechaAutorizacion: iso(existing.fechaAutorizacion),
+      fechaIfacs: iso(existing.fechaIfacs),
+      fechaInsal: iso(existing.fechaInsal),
+      fechaAptoMedico: iso(existing.fechaAptoMedico),
+      fechaDispoDesignacion: iso(existing.fechaDispoDesignacion),
+      cronograma: (existing.cronograma ?? {}) as Record<string, string | null>,
+    }),
+    aplanarFechasCeetps(body),
+  )
+  if (errorFechas) throw AppError.badRequest(errorFechas)
   const nuevoSinAutorizar = esNuevoCargoSinAutorizar(concursoBase)
   const hayPendiente = nuevoSinAutorizar
     ? !!(await prisma.autorizacion.findFirst({
@@ -198,11 +226,31 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
   // Quien completa la Etapa 1 y puede resolver como SGRASV (o es admin) auto-aprueba.
   const autoAprobar = solicitaAutorizacion && (await usuarioPuedeResolverSgrasv(prisma, usuarioId))
 
+  // Etapa 4: el candidato reservado y los que rechazaron deben ser inscriptos de ESTE concurso.
+  const idsInscriptos = [
+    ...(body.inscriptoReservadoId ? [body.inscriptoReservadoId] : []),
+    ...(body.insalRechazados ?? []),
+  ]
+  if (idsInscriptos.length > 0) {
+    const unicos = [...new Set(idsInscriptos)]
+    const propios = await prisma.inscriptoCeetps.count({
+      where: { id: { in: unicos }, concursoCeetpsId: id },
+    })
+    if (propios !== unicos.length) {
+      throw AppError.badRequest('El candidato no pertenece a los inscriptos de este concurso')
+    }
+  }
+
   const patch: Prisma.ConcursoCeetpsUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCeetpsBody, unknown][]) {
     if (value === undefined) continue
     const isFecha = CAMPOS_FECHA.has(key)
-    ;(patch as Record<string, unknown>)[key] = isFecha && typeof value === 'string' ? new Date(value) : value
+    ;(patch as Record<string, unknown>)[key] =
+      key === 'observaciones' && typeof value === 'string'
+        ? quitarTrazasEtl(value)
+        : isFecha && typeof value === 'string'
+          ? new Date(value)
+          : value
   }
 
   // S20-10: puestoSolicitado (auditoría) se recalcula del catálogo cuando se
@@ -351,5 +399,122 @@ export async function designarConcursoCeetpsService(id: string, body: DesignarCe
     })
 
     return updated
+  })
+}
+
+// ─── Etapa 5: asignar el designado SIN ocupar el cargo ───────────────────────
+// Guarda a quien firmó el INSAL: o una persona ya existente, o una referencia
+// (CUIL + nombre). NO crea Persona, NO crea Ocupación y NO toca el Cargo: el
+// cargo pasa a ocupado cuando la persona aparezca en el padrón. Si el CUIL de la
+// referencia ya es una Persona de la base, se la vincula también.
+export async function asignarDesignadoCeetpsService(id: string, body: AsignarDesignadoCeetpsBody) {
+  await cargarConcursoCeetpsEditable(id)
+  const data: Prisma.ConcursoCeetpsUpdateInput = {}
+  if ('refCuil' in body) {
+    data.designadoRefCuil = body.refCuil
+    data.designadoRefNombre = body.refNombre
+    data.designadoRefIdSialRol = body.idSialRol ?? null
+    const persona = await prisma.persona.findUnique({ where: { cuil: body.refCuil } })
+    data.personaDesignada = persona ? { connect: { id: persona.id } } : { disconnect: true }
+  } else {
+    const persona = await prisma.persona.findUnique({ where: { id: (body as { personaId: string }).personaId } })
+    if (!persona) throw AppError.notFound('Persona no encontrada')
+    data.personaDesignada = { connect: { id: persona.id } }
+    data.designadoRefCuil = null
+    data.designadoRefNombre = null
+    data.designadoRefIdSialRol = null
+  }
+  return prisma.concursoCeetps.update({ where: { id }, data, include })
+}
+
+// ─── Etapa 5: el candidato no fue apto → vuelve a la asignación de candidato ──
+// Guarda en el historial todo lo que se había cargado de su designación, lo
+// excluye del orden de mérito (insalRechazados) y deja la Etapa 5 (y la fecha
+// INSAL) en blanco para el próximo candidato. El concurso vuelve a la Etapa 4.
+// Si el padrón ya enganchó un ID SIAL, ya no se puede devolver.
+export async function registrarNoAptoCeetpsService(id: string) {
+  const base = await cargarConcursoCeetpsEditable(id)
+  const c = await prisma.concursoCeetps.findUniqueOrThrow({ where: { id } })
+  if (c.codigoSial) {
+    throw AppError.conflict('El cargo ya tiene un ID SIAL vinculado con el padrón: no se puede devolver el concurso.')
+  }
+
+  const inscripto = c.inscriptoReservadoId
+    ? await prisma.inscriptoCeetps.findUnique({ where: { id: c.inscriptoReservadoId } })
+    : null
+  const apellidoNombre = inscripto
+    ? `${inscripto.apellido}, ${inscripto.nombre}`
+    : c.designadoRefNombre
+  if (!apellidoNombre) throw AppError.conflict('No hay un candidato propuesto para marcar como No apto.')
+
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
+  const datos = {
+    expedienteDesignacion: c.expedienteDesignacion,
+    fechaAptoMedico: iso(c.fechaAptoMedico),
+    estadoApto: 'NO APTO',
+    numeroAptoMedico: c.numeroAptoMedico,
+    proyectoResolucion: c.proyectoResolucion,
+    dispoDesignacion: c.dispoDesignacion,
+    fechaDispoDesignacion: iso(c.fechaDispoDesignacion),
+    resoALaFirma: c.resoALaFirma,
+    resolucionConvalidacion: c.resolucionConvalidacion,
+    fechaIfacs: iso(c.fechaIfacs),
+    fechaInsal: iso(c.fechaInsal),
+  }
+
+  const limpio = {
+    expedienteDesignacion: null,
+    fechaAptoMedico: null,
+    estadoApto: null,
+    numeroAptoMedico: null,
+    proyectoResolucion: null,
+    dispoDesignacion: null,
+    fechaDispoDesignacion: null,
+    resolucionConvalidacion: null,
+    resoALaFirma: null,
+    fechaInsal: null,
+  }
+  const { estado, subEstado } = calcEstadoCeetps({
+    ...c,
+    ...limpio,
+    autorizacionNuevoCargo: autorizacionParaCalcCeetps(base.concurso, { pendiente: false, autoAprobar: false }),
+  })
+
+  return prisma.$transaction(async (tx) => {
+    await tx.designacionHistorialCeetps.create({
+      data: {
+        concursoCeetpsId: id,
+        inscriptoId: inscripto?.id ?? null,
+        apellidoNombre,
+        cuil: inscripto?.cuil ?? c.designadoRefCuil,
+        motivo: 'no_apto',
+        numeroNota: c.numeroAptoMedico,
+        datos,
+      },
+    })
+    return tx.concursoCeetps.update({
+      where: { id },
+      data: {
+        ...limpio,
+        inscriptoReservadoId: null,
+        insalAceptado: null,
+        insalRechazados: inscripto ? [...new Set([...c.insalRechazados, inscripto.id])] : c.insalRechazados,
+        designadoRefCuil: null,
+        designadoRefNombre: null,
+        designadoRefIdSialRol: null,
+        personaDesignadaId: null,
+        estado,
+        subEstado,
+      },
+      include,
+    })
+  })
+}
+
+export async function listarHistorialDesignacionCeetpsService(id: string) {
+  await cargarConcursoCeetps(id)
+  return prisma.designacionHistorialCeetps.findMany({
+    where: { concursoCeetpsId: id },
+    orderBy: { createdAt: 'desc' },
   })
 }

@@ -470,7 +470,8 @@ export function armarObservaciones(fila: Fila, hoja: 'cph' | 'ceetps', warnings:
   if (warnExcel) trazas.push(`_warnings=${warnExcel}`)
   if (warnings.length) trazas.push(`loader_warnings=${warnings.join(' | ')}`)
 
-  if (trazas.length) partes.push(`[ETL] ${trazas.join(' | ')}`)
+  // Solo CPH conserva las trazas: en CEETPS no aportan y se mostraban en pantalla.
+  if (trazas.length && hoja === 'cph') partes.push(`[ETL] ${trazas.join(' | ')}`)
   return partes.length ? partes.join('\n') : null
 }
 

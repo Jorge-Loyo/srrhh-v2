@@ -305,6 +305,15 @@ describe('armarObservaciones — trazabilidad [ETL]', () => {
     expect(obs).toContain('loader_warnings=loader warn x')
   })
 
+  it('CEETPS: no agrega trazas [ETL], solo las observaciones del Excel', () => {
+    const obs = armarObservaciones(
+      { observaciones: 'NO TOMA CARGO', _warnings: 'puesto sin match', ee_baja: 'EX-1' },
+      'ceetps',
+      ['loader warn x'],
+    )
+    expect(obs).toBe('NO TOMA CARGO')
+  })
+
   it('sin datos extra → null', () => {
     expect(armarObservaciones({}, 'ceetps', [])).toBeNull()
   })

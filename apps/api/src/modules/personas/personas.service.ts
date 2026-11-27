@@ -67,6 +67,7 @@ export async function listPersonasService(query: PersonasQuery) {
     especialidadPuestoId,
     idSial,
     soloJefes,
+    conCargoVigente,
     grupos,
   } = query
   const offset = (page - 1) * limit
@@ -120,6 +121,17 @@ export async function listPersonasService(query: PersonasQuery) {
         AND oj.hasta IS NULL
         AND oj.codigo_jefaturas IS NOT NULL
         AND TRIM(oj.codigo_jefaturas) NOT IN ('', '0')
+    )`)
+  // Cargo vigente ocupado: ocupación sin fecha de fin sobre un cargo vigente no
+  // eliminado, de una persona activa (mismo criterio que el alta de jurado CEETPS).
+  if (conCargoVigente)
+    conditions.push(Prisma.sql`p.activo = true AND EXISTS (
+      SELECT 1 FROM ocupaciones ov
+      JOIN cargos cv ON cv.id = ov.cargo_id
+      WHERE ov.persona_id = p.id
+        AND ov.hasta IS NULL
+        AND cv.estado = 'vigente'
+        AND cv.deleted_at IS NULL
     )`)
 
   const where = conditions.length

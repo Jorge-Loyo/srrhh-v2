@@ -53,6 +53,10 @@ export const TABLAS_BORRAR: readonly TablaBorrar[] = [
   // Decision de Jorge (12-nov): los inscriptos son datos generados; se borran TODOS, tambien los de concursos que estan en el Excel.
   // Para volver a conservar los de concursos del Excel: cambiar a { alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` }.
   { tabla: 'inscriptos_concurso', alcance: 'todo', donde: '' },
+  // CEETPS (2026-11-18): jurado asignado e inscriptos, mismo criterio que sus pares CPH (datos generados, todo).
+  { tabla: 'miembros_jurado_ceetps', alcance: 'todo', donde: '' },
+  { tabla: 'inscriptos_ceetps', alcance: 'todo', donde: '' },
+  { tabla: 'designaciones_historial_ceetps', alcance: 'todo', donde: '' },
   { tabla: 'etiquetas_concurso_cph', alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` },
   { tabla: 'concursos_cph', alcance: 'fuera_excel', donde: FUERA_BASE },
   { tabla: 'concursos_ceetps', alcance: 'fuera_excel', donde: FUERA_BASE },
@@ -84,6 +88,7 @@ export const CLASIFICACION: Readonly<Record<string, Clasificacion>> = {
   sorteos_jurado: 'BORRAR', orden_merito_integrantes: 'BORRAR', ordenes_merito: 'BORRAR',
   concursos_cph_desiertos: 'BORRAR', inscriptos_concurso: 'BORRAR', etiquetas_concurso_cph: 'BORRAR',
   concursos_cph: 'BORRAR', concursos_ceetps: 'BORRAR', concursos: 'BORRAR',
+  miembros_jurado_ceetps: 'BORRAR', inscriptos_ceetps: 'BORRAR', designaciones_historial_ceetps: 'BORRAR',
   etiquetas_solicitud_alta: 'BORRAR', solicitudes_alta: 'BORRAR', etiquetas_baja: 'BORRAR', bajas: 'BORRAR',
   etiquetas_cargo: 'BORRAR', autorizaciones: 'BORRAR', tareas_pendientes: 'BORRAR',
   notificaciones: 'BORRAR', padron_incidencias: 'BORRAR', audit_logs: 'BORRAR',

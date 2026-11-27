@@ -40,7 +40,9 @@ export function AlertasSinMovimientoCeetps() {
 
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-      <h2 className="font-primary text-base font-bold text-gray-900">Alertas — concursos sin movimiento</h2>
+      <h2 className="font-primary text-base font-bold text-gray-900">
+        Alertas — concursos sin movimiento
+      </h2>
 
       <div className="grid grid-cols-3 gap-3">
         {grupos.map((g) => (
@@ -50,11 +52,15 @@ export function AlertasSinMovimientoCeetps() {
             onClick={() => setUmbralAbierto(umbralAbierto === g.dias ? null : g.dias)}
             disabled={g.items.length === 0}
             className={`rounded border p-3 text-left transition-colors disabled:opacity-40 disabled:cursor-default ${
-              umbralAbierto === g.dias ? 'border-secondary bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
+              umbralAbierto === g.dias
+                ? 'border-secondary bg-blue-50'
+                : 'border-gray-200 hover:bg-gray-50'
             }`}
           >
             <p className="text-2xl font-bold text-gray-900">{g.items.length}</p>
-            <p className={`text-xs font-semibold ${g.tono === 'danger' ? 'text-danger' : 'text-warning'}`}>
+            <p
+              className={`text-xs font-semibold ${g.tono === 'danger' ? 'text-danger' : 'text-warning'}`}
+            >
               {g.dias}+ días sin movimiento
             </p>
           </button>
@@ -74,26 +80,28 @@ export function AlertasSinMovimientoCeetps() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {abierto.items.map(({ concurso, dias }: { concurso: ConcursoCeetps; dias: number }) => (
-                <tr key={concurso.id}>
-                  <td className="py-2 text-gray-600">{concurso.hospital?.sigla ?? '—'}</td>
-                  <td className="py-2 text-gray-600">{concurso.escalafon?.nombre ?? '—'}</td>
-                  <td className="py-2 text-gray-600">
-                    {ESTADO_LABEL[concurso.estado]}
-                    {concurso.subEstado && (
-                      <span className="ml-1 text-xs text-gray-400">
-                        · {SUB_ESTADO_LABEL[concurso.subEstado] ?? concurso.subEstado}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2 text-gray-600">{dias} días</td>
-                  <td className="py-2 text-right">
-                    <Link to={`/concursos/ceetps/${concurso.id}`} className="btn-outline">
-                      Ver
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {abierto.items.map(
+                ({ concurso, dias }: { concurso: ConcursoCeetps; dias: number }) => (
+                  <tr key={concurso.id}>
+                    <td className="py-2 text-gray-600">{concurso.hospital?.sigla ?? '—'}</td>
+                    <td className="py-2 text-gray-600">{concurso.escalafon?.nombre ?? '—'}</td>
+                    <td className="py-2 text-gray-600">
+                      {ESTADO_LABEL[concurso.estado]}
+                      {concurso.subEstado && (
+                        <span className="ml-1 text-xs text-gray-400">
+                          · {SUB_ESTADO_LABEL[concurso.subEstado] ?? concurso.subEstado}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 text-gray-600">{dias} días</td>
+                    <td className="py-2 text-right">
+                      <Link to={`/concursos/ceetps/${concurso.id}`} className="btn-outline">
+                        Ver
+                      </Link>
+                    </td>
+                  </tr>
+                ),
+              )}
             </tbody>
           </table>
         </div>

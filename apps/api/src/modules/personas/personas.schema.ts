@@ -67,6 +67,12 @@ export const personasQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  // Solo personas activas con un cargo vigente ocupado (ej. candidatos a
+  // jurado CEETPS). Mismo patrón enum→boolean que `activo`.
+  conCargoVigente: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
 })
 
 export type PersonasQuery = z.infer<typeof personasQuerySchema>
