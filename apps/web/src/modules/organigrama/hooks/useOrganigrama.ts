@@ -29,6 +29,19 @@ export interface OrganigramaCargoVacante {
   codigoCargo: string | null
 }
 
+// Persona de conducción de un nodo que no es el titular mostrado (co-jefe o
+// jefatura inferior) o titular de una jefatura en "retención de cargo".
+export interface OrganigramaTitularSecundario {
+  personaId: string
+  nombre: string
+  cargoId: string | null
+  codigoCargo: string | null
+  cargo: string | null
+  jcat: string | null
+  situacionRevista: string | null
+  tieneOtroCargoActivo?: boolean
+}
+
 export interface OrganigramaNodo {
   id: string
   nombre: string | null
@@ -39,6 +52,8 @@ export interface OrganigramaNodo {
   persona: OrganigramaPersona | null
   cargoVacante: OrganigramaCargoVacante | null
   razonSinCargo: RazonSinCargo | null
+  otrosTitulares?: OrganigramaTitularSecundario[]
+  titularEnRetencion?: OrganigramaTitularSecundario | null
   hijos: OrganigramaNodo[]
 }
 
