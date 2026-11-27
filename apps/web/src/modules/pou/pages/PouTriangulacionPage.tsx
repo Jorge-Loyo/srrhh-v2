@@ -139,19 +139,27 @@ function FilaEspecialidad({ row, sigla, onOpenModal }: {
   row: ComparacionPouRow; sigla: string
   onOpenModal: (columna: string) => void
 }) {
-  const difColor = row.diferencia === 0
-    ? 'bg-white'
-    : row.diferencia > 0
-      ? 'bg-red-50'
-      : 'bg-orange-50'
+  const sinNorma = !row.enNorma
+  const difColor = sinNorma
+    ? 'bg-purple-50'
+    : row.diferencia === 0
+      ? 'bg-white'
+      : row.diferencia > 0
+        ? 'bg-red-50'
+        : 'bg-orange-50'
 
   return (
     <tr className={`border-b border-gray-100 text-xs ${difColor}`}>
-      <td className="pl-8 pr-3 py-2 text-gray-800">{row.especialidad}</td>
+      <td className="pl-8 pr-3 py-2 text-gray-800">
+        {row.especialidad}
+        {sinNorma && (
+          <span className="ml-2 px-1.5 py-0.5 rounded text-xs font-semibold bg-purple-100 text-purple-700">Sin norma</span>
+        )}
+      </td>
       {/* POU documento */}
-      <td className="px-3 py-2 text-center font-semibold text-gray-700">{row.pouDotacion}</td>
-      <td className="px-3 py-2 text-center text-green-700">{row.pouActivos}</td>
-      <td className="px-3 py-2 text-center text-orange-700">{row.pouVacantes}</td>
+      <td className="px-3 py-2 text-center font-semibold text-gray-400">{sinNorma ? '—' : row.pouDotacion}</td>
+      <td className="px-3 py-2 text-center text-gray-400">{sinNorma ? '—' : row.pouActivos}</td>
+      <td className="px-3 py-2 text-center text-gray-400">{sinNorma ? '—' : row.pouVacantes}</td>
       {/* Sistema */}
       <td className="px-3 py-2 text-center font-semibold text-gray-700">
         <NumCell value={row.sistemaTotal} onClick={() => onOpenModal('sistemaTotal')} />

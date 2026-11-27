@@ -41,7 +41,7 @@ function formatFecha(iso: string) {
 
 // ── Detalle de referencia por fila — un fetch liviano por tipo, no bloquea la lista ──
 type CphCargo = { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string }; codigoRegistro?: { literal?: string } }
-type CphExt = ConcursoCph & { siglaSolicitada?: string | null; especialidadSolicitada?: string | null; puestoSolicitado?: string | null; codigoRegistroSolicitado?: { literal?: string } | null; motivoCambioEspecialidad?: string | null }
+type CphExt = ConcursoCph & { siglaSolicitada?: string | null; especialidadSolicitada?: string | null; puestoSolicitado?: string | null; codigoRegistroSolicitado?: { literal?: string } | null; motivoCambioEspecialidad?: string | null; observaciones?: string | null; eeConcurso?: string | null; ifAutorizacion?: string | null }
 
 function ReferenciaCph({ id, onEsInformativa }: { id: string; onEsInformativa?: (id: string) => void }) {
   const { data } = useQuery({
@@ -74,8 +74,10 @@ function ReferenciaCph({ id, onEsInformativa }: { id: string; onEsInformativa?: 
       </div>
 
       {esInformativa ? (
-        <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
-          ℹ️ Notificación informativa — se cargó el expediente de concurso <span className="font-mono font-semibold">{data.eeConcurso}</span>. No requiere acción.
+        <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700 space-y-1">
+          <p>ℹ️ Notificación informativa — se cargó el expediente de concurso <span className="font-mono font-semibold">{data.eeConcurso}</span>. No requiere acción.</p>
+          {data.ifAutorizacion && <p>IF de autorización: <span className="font-mono font-semibold">{data.ifAutorizacion}</span></p>}
+          {data.observaciones && <p><span className="font-semibold">Observaciones:</span> {data.observaciones}</p>}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -92,6 +94,11 @@ function ReferenciaCph({ id, onEsInformativa }: { id: string; onEsInformativa?: 
           {data.motivoCambioEspecialidad && (
             <div className="rounded bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-800">
               <span className="font-semibold">Motivo cambio especialidad:</span> {data.motivoCambioEspecialidad}
+            </div>
+          )}
+          {data.observaciones && (
+            <div className="rounded bg-gray-50 border border-gray-200 px-3 py-1.5 text-xs text-gray-700">
+              <span className="font-semibold">Observaciones:</span> {data.observaciones}
             </div>
           )}
         </div>

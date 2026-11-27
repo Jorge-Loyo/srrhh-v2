@@ -74,6 +74,8 @@ export interface ComparacionPouRow {
   sistemaValidacion: number
   // Diferencia: pouDotacion - sistemaTotal (negativo = más cargos que POU)
   diferencia: number
+  // true = fila viene del documento POU; false = cargos en sistema sin fila POU
+  enNorma: boolean
 }
 
 // Mapeo de literal_puesto del cargo → (perfil, especialidad) del documento POU.
@@ -213,16 +215,37 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
       JOIN hospitales h ON h.sigla = p.sigla
       ${filtroPou}
     )
+    -- Cargos en sistema que no matchearon ninguna fila POU (pou_perfil IS NULL)
+    cargos_sin_norma AS (
+      SELECT sigla, pou_especialidad,
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE sub_estado = 'ocupado')::int    AS ocupado,
+             COUNT(*) FILTER (WHERE sub_estado = 'vacante')::int    AS vacante,
+             COUNT(*) FILTER (WHERE sub_estado = 'concurso')::int   AS concurso,
+             COUNT(*) FILTER (WHERE estado = 'validacion_vacante')::int AS validacion
+      FROM cargos_clasificados
+      WHERE pou_perfil IS NULL AND pou_especialidad IS NOT NULL
+      GROUP BY sigla, pou_especialidad
+    )
     SELECT cp.sigla, cp.pou_perfil AS perfil, cp.pou_especialidad AS especialidad,
            COALESCE(cp.pou_dotacion,0) AS pou_dotacion, COALESCE(cp.pou_activos,0) AS pou_activos,
            COALESCE(cp.pou_vacantes,0) AS pou_vacantes, COALESCE(cs.total,0) AS sistema_total,
            COALESCE(cs.ocupado,0) AS sistema_ocupado, COALESCE(cs.vacante,0) AS sistema_vacante,
            COALESCE(cs.concurso,0) AS sistema_concurso, COALESCE(cs.validacion,0) AS sistema_validacion,
-           COALESCE(cp.pou_dotacion,0) - COALESCE(cs.total,0) AS diferencia
+           COALESCE(cp.pou_dotacion,0) - COALESCE(cs.total,0) AS diferencia,
+           true AS en_norma
     FROM cargos_pou cp
     LEFT JOIN cargos_sistema cs
       ON cs.sigla = cp.sigla AND cs.pou_perfil = cp.pou_perfil AND cs.pou_especialidad = cp.pou_especialidad
-    ORDER BY cp.sigla, cp.pou_perfil, cp.pou_especialidad
+    UNION ALL
+    SELECT csn.sigla, 'especialista en la guardia medico' AS perfil, csn.pou_especialidad AS especialidad,
+           0 AS pou_dotacion, 0 AS pou_activos, 0 AS pou_vacantes,
+           csn.total AS sistema_total, csn.ocupado AS sistema_ocupado, csn.vacante AS sistema_vacante,
+           csn.concurso AS sistema_concurso, csn.validacion AS sistema_validacion,
+           0 - csn.total AS diferencia,
+           false AS en_norma
+    FROM cargos_sin_norma csn
+    ORDER BY sigla, perfil, especialidad
   `
 
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql, ...params)
@@ -240,6 +263,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
     sistemaConcurso:   Number(r.sistema_concurso),
     sistemaValidacion: Number(r.sistema_validacion),
     diferencia:        Number(r.diferencia),
+    enNorma:           Boolean(r.en_norma),
   }))
 }
 

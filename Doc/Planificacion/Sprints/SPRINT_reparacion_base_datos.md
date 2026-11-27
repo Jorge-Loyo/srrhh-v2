@@ -285,21 +285,82 @@ El cargo `terapista fisico de guardia` requirió crear primero el puesto en `pue
 
 ---
 
+---
+
+### R-9 — Asignar códigos correlativos a cargos sin código ✅ Ejecutado (2026-11-17)
+
+**Problema:** 28 cargos sin `codigo` asignado (NULL). Necesarios para identificación en la UI.
+
+**Estrategia:** `ROW_NUMBER()` por `cod_reg` con prefijos por escalafón.
+Prefijos usados: `SG-`, `CPH-P-`, `EG-`, `TEC-`, `ENF-`.
+
+**Script:** `scripts/repair_r9_asignar_codigos_cargos.sql`
+
+**Resultado:** 25 cargos con código asignado (3 ya tenían código al momento de ejecutar).
+
+---
+
+### R-10 — Actualización de bajas 001xxx ✅ Ejecutado (2026-11-17)
+
+**Problema:** 228 cargos con bajas SIAL `001xxx` sin estado actualizado.
+
+**Resultado:**
+- 210 → `validacion_vacante` (cod_reg 23/37/83/85/87)
+- 18 → `no_vigente` (cod_reg 07/24)
+
+---
+
+### R-11 — Migración completa a Neon nueva (ep-little-river) ✅ Ejecutado (2026-11-18)
+
+**Contexto:** La Neon vieja (`ep-aged-water`) era una base de prueba con UUIDs distintos.
+Se migró todo a la nueva base de producción (`ep-little-river`) usando `id_sial` e
+`id_sial_rol` como puentes.
+
+**Tablas migradas:**
+
+| Tabla | Filas migradas | Notas |
+|---|---|---|
+| `ocupaciones` (activas) | 55.553 | Migración inicial |
+| `ocupaciones` (cerradas) | 3.926 | Via `ocu_cerradas_tmp` |
+| `bajas` | 2.853 | Via `bajas_id_map` para trazabilidad |
+| `concursos` (con baja vinculada) | 516 | Vinculados via `bajas_id_map` |
+| `cargos` históricos `HIS-` | 4.074 | Cargos de la vieja no existentes en nueva |
+| `padron_historico` (gap) | 25.884 | Filas faltantes de snapshots existentes |
+| `padron_historico` nov-08 | 48.998 | Desde `dotacion.xlsx` del dotaneitor |
+| `kpis_dotacion_snapshot` | 492 | Recalculado desde `padron_historico` |
+
+**Convenciones de códigos históricos:**
+- Cargos históricos usan prefijo `HIS-` + prefijo de escalafón + `id_sial`
+- Ejemplos: `HIS-CPH-001789296-3`, `HIS-G-001711804-1`, `HIS-DOC-001727312-12`
+- Garantiza que no colisionen con códigos operativos futuros
+
+**Tabla de mapeo permanente:** `bajas_id_map` (baja_id_viejo → baja_id_nuevo)
+
+**733 ocupaciones cerradas irrecuperables:** sus cargos no existen en ninguna base.
+
+---
+
 ## Cierre del sprint
 
-**Estado:** Cerrado. R-8 ejecutado post-cierre como extensión.
+**Estado:** Cerrado.
 
-**Resumen de impacto:**
+**Resumen de impacto final:**
 
 | Métrica | Inicio | Final |
 |---|---|---|
 | Personas con apellido | 0 | 49.519 |
-| Total ocupaciones | 11.047 | 55.553 |
+| Total ocupaciones | 11.047 | 59.479 |
 | Cargos vigentes sin ocupación | 46.049 | 7.803 |
 | Diffs nuevo sin ocupación | 49.514 | 6.698 |
-| Cargos no_vigente desde bajas SIAL | 0 | 112 |
+| Cargos no_vigente (HIS- + bajas SIAL) | 0 | 4.186 |
+| Bajas | 0 | 2.920 |
+| Concursos | 1.959 | 2.475 |
+| padron_historico | 164.933 | 239.815 |
+| kpis_dotacion_snapshot | 406 | 492 (recalculado) |
 
 **Deuda técnica registrada:**
 - Agregar `id_sial_original TEXT` en `cargos` para soportar el matching del padrón contra
   cargos desdoblados. Candidato a sprint de schema futuro.
+- Snapshot `2026-11-08`: `padron_historico` cargado manualmente desde `dotacion.xlsx`.
+  El pipeline de Node no completó la carga automática — investigar causa en `padron.service.ts`.
 
