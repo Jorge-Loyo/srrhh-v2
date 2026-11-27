@@ -60,7 +60,7 @@ async function main() {
 
   const conteos = async (q: { $queryRawUnsafe<T>(s: string): Promise<T> }) => {
     const r = await q.$queryRawUnsafe<{ cargos: number; concursos: number; bajas: number; corridas: number; escalafon_37: number }[]>(
-      "SELECT (SELECT count(*)::int FROM cargos) AS cargos, (SELECT count(*)::int FROM concursos) AS concursos, (SELECT count(*)::int FROM bajas) AS bajas, (SELECT count(*)::int FROM sync_corridas) AS corridas, (SELECT count(*)::int FROM escalafones WHERE codigo = '37') AS escalafon_37",
+      "SELECT (SELECT count(*)::int FROM cargos) AS cargos, (SELECT count(*)::int FROM concursos) AS concursos, (SELECT count(*)::int FROM bajas) AS bajas, (SELECT count(*)::int FROM dim_sync_corridas) AS corridas, (SELECT count(*)::int FROM escalafones WHERE codigo = '37') AS escalafon_37",
     )
     return r[0]
   }

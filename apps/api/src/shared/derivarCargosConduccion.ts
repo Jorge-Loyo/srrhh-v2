@@ -93,7 +93,7 @@ export async function derivarCargosConduccionService(
               AND lower(unaccent(o.situacion_revista))='activo'
             WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL) > 0
              AS tiene_personal_activo
-    FROM organigramas og
+    FROM dim_organigrama og
     WHERE og.tipo NOT IN ('GO','SGO','F/N MSTR - GO','Ministerio','PLTA TRANS. DOCENTE')
       AND lower(og.regimen_empleo) NOT LIKE '%fuera de norma%'
       AND lower(og.regimen_empleo) NOT LIKE '%director docente%'

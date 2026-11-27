@@ -276,6 +276,40 @@ export const TreeNode = memo(function TreeNode({
             'REGIMEN' ? null /* Los nodos REGIMEN son agrupadores de escalafón, no cargos — no pueden estar "vacantes" */ : (
             <p className="text-xs text-amber-600 font-medium mt-0.5 italic">Vacante</p>
           )}
+          {!node.persona && node.titularEnRetencion && (
+            <p
+              className="text-[11px] text-gray-500 mt-0.5"
+              title="La jefatura figura en retención de cargo: no se asume cubierta ni vacante"
+            >
+              Titular en retención: {capitalizar(node.titularEnRetencion.nombre)}
+              {node.titularEnRetencion.codigoCargo && (
+                <span className="font-mono text-[10px] ml-1">· {node.titularEnRetencion.codigoCargo}</span>
+              )}
+              <span className="italic ml-1">
+                {node.titularEnRetencion.tieneOtroCargoActivo
+                  ? '(ejerce en otro cargo)'
+                  : '(sin otro cargo activo)'}
+              </span>
+            </p>
+          )}
+          {node.persona && node.otrosTitulares && node.otrosTitulares.length > 0 && (
+            <ul className="mt-0.5 space-y-0.5" title="Otros cargos de conducción activos en esta repartición">
+              {node.otrosTitulares.map((o) => (
+                <li key={o.cargoId ?? o.personaId} className="text-[11px] text-gray-500 flex items-center gap-1">
+                  <UserIcon className="w-3 h-3 flex-shrink-0 opacity-60" />
+                  {capitalizar(o.nombre)}
+                  {o.cargo && <span className="ml-1">· {capitalizarEtiqueta(o.cargo)}</span>}
+                  {o.jcat && <span className="font-mono text-[10px] ml-1">{o.jcat}</span>}
+                  {o.situacionRevista && o.situacionRevista.toLowerCase() !== 'activo' && (
+                    <span className="italic ml-1">
+                      ({o.situacionRevista}
+                      {o.tieneOtroCargoActivo ? ', ejerce en otro cargo' : ''})
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           {node.id && node.tipo !== 'REGIMEN' && (
             <span className="inline-block text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded mt-1">
               {node.id}

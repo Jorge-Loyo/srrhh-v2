@@ -212,7 +212,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
     cargos_pou AS (
       SELECT h.sigla, p.perfil AS pou_perfil, p.especialidad AS pou_especialidad,
              p.dotacion_total AS pou_dotacion, p.activos AS pou_activos, p.vacantes AS pou_vacantes
-      FROM pou p
+      FROM dim_pou_ocupacion p
       JOIN hospitales h ON h.sigla = p.sigla
       ${filtroPou}
     ),
@@ -304,7 +304,7 @@ export async function triangularPouService(sigla?: string): Promise<Triangulacio
       END                                              AS estado_pou
     FROM cargos c
     JOIN hospitales h ON h.id = c.hospital_id
-    LEFT JOIN pou p
+    LEFT JOIN dim_pou_ocupacion p
       ON  p.sigla = h.sigla
       AND p.perfil       = ${CASE_PERFIL}
       AND p.especialidad = ${CASE_ESPECIALIDAD}
@@ -430,7 +430,7 @@ export async function listPouCargasService(): Promise<PouCarga[]> {
     SELECT pc.id, pc.archivo, pc.filas, pc.usuario_id AS "usuarioId", pc.created_at AS "createdAt",
            u.username
     FROM pou_cargas pc
-    LEFT JOIN usuarios u ON u.id = pc.usuario_id
+    LEFT JOIN dim_usuarios u ON u.id = pc.usuario_id
     ORDER BY pc.created_at DESC
     LIMIT 20
   `

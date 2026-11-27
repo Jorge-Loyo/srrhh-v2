@@ -7,6 +7,7 @@ import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.j
 import { PREFIJOS_CONDUCCION, esConduccionPorPrefijo } from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 import { derivarCargosConduccionService } from '../../shared/derivarCargosConduccion.js'
+import { rangoConduccion } from './organigrama.rango.js'
 
 // xlsx es CJS — mismo patrón que bajas-sial.service.ts (createRequire porque
 // este proyecto es ESM).
@@ -59,6 +60,22 @@ interface PersonaNodo {
   hospital: string | null
 }
 
+// Persona de conducción de un nodo que NO es el titular mostrado: otro jefe del
+// mismo nivel (co-jefatura) o de un nivel inferior en la misma repartición, o el
+// titular de una jefatura que está en "retención de cargo".
+interface TitularSecundario {
+  personaId: string
+  nombre: string
+  cargoId: string | null
+  codigoCargo: string | null
+  cargo: string | null
+  jcat: string | null
+  situacionRevista: string | null
+  // Solo para retención: la persona ejerce en otro cargo activo (se fue de la
+  // jefatura) o no (podría seguir ejerciéndola).
+  tieneOtroCargoActivo?: boolean
+}
+
 interface CargoVacanteNodo {
   cargoId: string
   codigoCargo: string | null
@@ -78,6 +95,12 @@ interface OrganigramaNodo {
   persona: PersonaNodo | null
   cargoVacante: CargoVacanteNodo | null
   razonSinCargo: RazonSinCargo | null
+  // Otros cargos de conducción vigentes y activos en la misma repartición, que
+  // perdieron contra el titular por rango (o co-jefes del mismo nivel).
+  otrosTitulares: TitularSecundario[]
+  // Nodo sin titular activo pero con jefatura (JCAT/código de conducción) cuya
+  // persona figura en "retención de cargo". No se asume cubierto: se informa.
+  titularEnRetencion: TitularSecundario | null
   hijos: OrganigramaNodo[]
 }
 
@@ -145,60 +168,6 @@ function esCargoDeConduccion(
   return false
 }
 
-// Rango jerárquico de un cargo de conducción: menor = más alto en la pirámide.
-// Cuando una misma repartición tiene VARIOS cargos de conducción (ej. un
-// Subsecretario y un Jefe de División conviviendo en el mismo nodo), gana el de
-// menor rango para que el titular del nodo sea la autoridad, no una jefatura
-// subordinada. Antes se tomaba el primero por orden de query y podía quedar el
-// Jefe de División en vez del Subsecretario.
-function rangoConduccion(
-  codigoRegistro: string | undefined,
-  codigoJefaturas: string | null,
-  escalafon: string | null,
-  codigoCargo?: string | null,
-): number {
-  if (codigoRegistro === '25') return 0 // Autoridades Superiores (ministro/subsecretario/DG)
-  if (codigoRegistro === '60') return 1 // Gerencias
-
-  // El JCAT manda la jerarquía REAL por sobre el escalafón: el 2º dígito es el
-  // nivel (00/01 dirección, 02 depto, 03 subdir, 04 división, 05 unidad, 06
-  // sección). Se evalúa ANTES que la vía gerencial-por-escalafón, porque un
-  // cargo puede ser escalafón "Carrera Gerencial" pero traer un JCAT de nivel
-  // alto (ej. Director P60) que NO debe quedar debajo de un Jefe de Depto, ni
-  // al revés. Base 10 para no pisar a Autoridades/Gerencias.
-  const j = (codigoJefaturas ?? '').trim().toUpperCase()
-  if (/^[PGZ]\d{2}$/.test(j)) return 10 + Number(j.slice(1))
-
-  // Sin JCAT pero con CÓDIGO de conducción: derivar el nivel del prefijo del
-  // código (mismo criterio que el JCAT: dirección < depto < subdir < división <
-  // unidad < sección). Alinea el rango con la escala del JCAT (base 10) para que
-  // un Director sin JCAT no quede debajo de un Jefe de Unidad con JCAT.
-  const rangoPrefijo = rangoPorPrefijoCodigo(codigoCargo)
-  if (rangoPrefijo !== null) return rangoPrefijo
-
-  // Carrera Gerencial SIN JCAT: gerente/subgerente operativo puro (nodos GO/SGO).
-  // Va después de los cargos con JCAT de dirección pero sigue siendo conducción.
-  if (escalafon && escalafon.toLowerCase().includes('gerencial')) return 50
-
-  return 99
-}
-
-// Nivel jerárquico derivado del prefijo del código de cargo, en la MISMA escala
-// que el JCAT (base 10: 10=dirección … 16=sección), para cargos de conducción
-// sin JCAT. Devuelve null si el código no es de conducción.
-function rangoPorPrefijoCodigo(codigoCargo: string | null | undefined): number | null {
-  if (!esConduccionPorPrefijo(codigoCargo)) return null
-  const c = codigoCargo!.replace(/^(R|TTR)-/, '')
-  if (c.startsWith('AS-')) return 0
-  if (c.startsWith('RG-CG') || c.startsWith('GER-')) return 1
-  if (c.startsWith('CPH-D') || c.startsWith('EG-D')) return 10 // dirección
-  if (c.startsWith('CPH-SD')) return 13                        // subdirección
-  if (c.startsWith('EG-G')) return 10                          // gerencial ≈ dirección
-  // Jefaturas (depto/división/unidad/sección) — el código no distingue el
-  // sub-nivel, así que se usa el de jefe de unidad (05) como representativo.
-  if (c.startsWith('CPH-J') || c.startsWith('TEC-J') || c.startsWith('ENF-J') || c.startsWith('EG-J')) return 15
-  return 20
-}
 
 // ── Orden jerárquico por tipo de unidad — puerto literal de `ordenTipos` ────
 const ORDEN_TIPOS: Record<string, number> = {
@@ -278,11 +247,11 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       const subarbol = await prisma.$queryRaw<Array<{ codigo_reparticion: string }>>`
         WITH RECURSIVE desc_tree AS (
           SELECT codigo_reparticion, padre
-          FROM organigramas
+          FROM dim_organigrama
           WHERE padre = ${ministerio.codigoReparticion}
           UNION ALL
           SELECT o.codigo_reparticion, o.padre
-          FROM organigramas o
+          FROM dim_organigrama o
           JOIN desc_tree d ON o.padre = d.codigo_reparticion
         )
         SELECT codigo_reparticion FROM desc_tree
@@ -391,8 +360,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   })
 
   const personasMap = new Map<string, PersonaNodo>()
+  const otrosTitularesMap = new Map<string, TitularSecundario[]>()
   for (const cargo of candidatosOrdenados) {
-    if (!cargo.codigoRepa || personasMap.has(cargo.codigoRepa)) continue
+    if (!cargo.codigoRepa) continue
     const ocup = cargo.ocupaciones[0]
     if (!ocup) continue
     if (
@@ -404,6 +374,26 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       )
     )
       continue
+
+    // Ya hay titular en este nodo: este cargo de conducción no se descarta en
+    // silencio, se informa como titular secundario (co-jefe o jefatura inferior).
+    const titular = personasMap.get(cargo.codigoRepa)
+    if (titular) {
+      if (titular.personaId !== ocup.persona.id) {
+        const lista = otrosTitularesMap.get(cargo.codigoRepa) ?? []
+        lista.push({
+          personaId: ocup.persona.id,
+          nombre: ocup.persona.apellidoNombre,
+          cargoId: cargo.id,
+          codigoCargo: cargo.codigo ?? null,
+          cargo: cargo.literalPuesto,
+          jcat: ocup.codigoJefaturas?.trim().toUpperCase() || null,
+          situacionRevista: 'activo',
+        })
+        otrosTitularesMap.set(cargo.codigoRepa, lista)
+      }
+      continue
+    }
 
     personasMap.set(cargo.codigoRepa, {
       personaId: ocup.persona.id,
@@ -434,6 +424,102 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // === 3. Cargos vacantes (nodos sin persona pero con cargo vigente sin ocupar) ===
   const nodosOcupados = new Set(personasMap.keys())
   const nodosLibres = codigosReparticion.filter((c) => !nodosOcupados.has(c))
+
+  // Titulares en "retención de cargo": la ocupación vigente de la jefatura existe
+  // pero su situación de revista no es 'activo', así que el filtro de candidatos
+  // la deja afuera y el nodo salía "Vacante" sin más. Se informa quién es y si
+  // ejerce en otro cargo (se fue) o no (podría seguir al frente). NO se muestra
+  // como titular: si cuenta o no como cubierto es decisión de RRHH. Si el nodo YA
+  // tiene titular activo, el jefe en retención se suma a `otrosTitulares` (antes
+  // quedaba invisible).
+  const titularesRetencionMap = new Map<string, TitularSecundario>()
+  if (codigosReparticion.length > 0) {
+    const filtroRetencion = {
+      hasta: null,
+      situacionRevista: { startsWith: 'retencion', mode: 'insensitive' as const },
+    }
+    const cargosRetencion = await prisma.cargo.findMany({
+      where: {
+        codigoRepa: { in: codigosReparticion },
+        deletedAt: null,
+        ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
+        ocupaciones: { some: filtroRetencion },
+      },
+      select: {
+        id: true,
+        codigoRepa: true,
+        codigo: true,
+        literalPuesto: true,
+        escalafon: { select: { nombre: true } },
+        codigoRegistro: { select: { codigo: true } },
+        ocupaciones: {
+          where: filtroRetencion,
+          take: 1,
+          select: {
+            codigoJefaturas: true,
+            situacionRevista: true,
+            persona: { select: { id: true, apellidoNombre: true } },
+          },
+        },
+      },
+    })
+    const rangoRetencion = (c: (typeof cargosRetencion)[number]) =>
+      rangoConduccion(
+        c.codigoRegistro?.codigo,
+        c.ocupaciones[0]?.codigoJefaturas ?? null,
+        c.escalafon?.nombre ?? null,
+        c.codigo,
+      )
+    const retencionOrdenada = cargosRetencion
+      .filter((c) => {
+        const o = c.ocupaciones[0]
+        return (
+          !!c.codigoRepa &&
+          !!o &&
+          esCargoDeConduccion(c.codigoRegistro?.codigo, o.codigoJefaturas, c.escalafon?.nombre ?? null, c.codigo)
+        )
+      })
+      .sort((a, b) => rangoRetencion(a) - rangoRetencion(b))
+    const personasRetencion = [...new Set(retencionOrdenada.map((c) => c.ocupaciones[0]!.persona.id))]
+    const conOtroCargoActivo = new Set(
+      personasRetencion.length === 0
+        ? []
+        : (
+            await prisma.ocupacion.findMany({
+              where: {
+                personaId: { in: personasRetencion },
+                hasta: null,
+                situacionRevista: { equals: 'activo', mode: 'insensitive' },
+              },
+              select: { personaId: true },
+            })
+          ).map((o) => o.personaId),
+    )
+    for (const c of retencionOrdenada) {
+      const o = c.ocupaciones[0]!
+      const sec: TitularSecundario = {
+        personaId: o.persona.id,
+        nombre: o.persona.apellidoNombre,
+        cargoId: c.id,
+        codigoCargo: c.codigo ?? null,
+        cargo: c.literalPuesto,
+        jcat: o.codigoJefaturas?.trim().toUpperCase() || null,
+        situacionRevista: o.situacionRevista ?? null,
+        tieneOtroCargoActivo: conOtroCargoActivo.has(o.persona.id),
+      }
+      const repa = c.codigoRepa!
+      const titular = personasMap.get(repa)
+      if (titular) {
+        // Nodo cubierto por alguien activo: el jefe en retención se informa aparte.
+        if (titular.personaId === sec.personaId) continue
+        const lista = otrosTitularesMap.get(repa) ?? []
+        lista.push(sec)
+        otrosTitularesMap.set(repa, lista)
+      } else if (!titularesRetencionMap.has(repa)) {
+        titularesRetencionMap.set(repa, sec)
+      }
+    }
+  }
   // Cargo de conducción VACANTE: cargo vigente sin ocupante en un nodo libre.
   // Con el unificador eliminado (v2) ya no se puede distinguir un cargo de
   // conducción 37/83/85/87 vacante de uno común (el JCAT que lo distingue vive
@@ -607,6 +693,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       persona: null,
       cargoVacante: null,
       razonSinCargo: null,
+      otrosTitulares: [],
+      titularEnRetencion: null,
       hijos: [],
     })
   }
@@ -626,6 +714,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         !personasMap.has(r.codigoReparticion) && !cargosVacantesMap.has(r.codigoReparticion)
           ? (razonSinCargoMap.get(r.codigoReparticion) ?? null)
           : null,
+      otrosTitulares: otrosTitularesMap.get(r.codigoReparticion) ?? [],
+      titularEnRetencion: !personasMap.has(r.codigoReparticion)
+        ? (titularesRetencionMap.get(r.codigoReparticion) ?? null)
+        : null,
       hijos: [],
     })
   }
@@ -740,6 +832,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
             !cargosVacantesMap.has(anchor.codigoReparticion)
               ? (razonSinCargoMap.get(anchor.codigoReparticion) ?? null)
               : null,
+          otrosTitulares: otrosTitularesMap.get(anchor.codigoReparticion) ?? [],
+          titularEnRetencion: !personasMap.has(anchor.codigoReparticion)
+            ? (titularesRetencionMap.get(anchor.codigoReparticion) ?? null)
+            : null,
           hijos: raices,
         }
       }
@@ -763,6 +859,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         persona: null,
         cargoVacante: null,
         razonSinCargo: null,
+        otrosTitulares: [],
+        titularEnRetencion: null,
         hijos: raices,
       }
     }
@@ -796,6 +894,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           persona: null,
           cargoVacante: null,
           razonSinCargo: null,
+          otrosTitulares: [],
+          titularEnRetencion: null,
           hijos,
         }))
     }
@@ -1445,7 +1545,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
            h.nombre AS hospital_nombre,
            cv.cargo_id, cv.cargo_codigo, cv.escalafon_nombre,
            (cv.cargo_id IS NULL) AS es_frio
-    FROM organigramas og
+    FROM dim_organigrama og
     LEFT JOIN hospitales h ON h.sigla = og.sigla
     LEFT JOIN cargo_vacante cv ON cv.codigo_repa = og.codigo_reparticion
     WHERE og.tipo <> 'REGIMEN'
@@ -1649,7 +1749,7 @@ export async function getCargosConduccionHuerfanosService() {
       AND c.deleted_at IS NULL
       AND c.codigo_repa IS NOT NULL
       AND NOT EXISTS (
-        SELECT 1 FROM organigramas og WHERE og.codigo_reparticion = c.codigo_repa
+        SELECT 1 FROM dim_organigrama og WHERE og.codigo_reparticion = c.codigo_repa
       )
     ORDER BY h.sigla, c.codigo
   `

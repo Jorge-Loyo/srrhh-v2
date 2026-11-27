@@ -3266,7 +3266,7 @@ export async function aprobarSnapshotService(
     // el organigrama de Nivel Central / APS / Hospitales siempre refleje la
     // info vigente sin intervención manual.
     await tx.$executeRaw`
-      UPDATE organigramas o
+      UPDATE dim_organigrama o
       SET universo_totalizador = h.universo_totalizador
       FROM hospitales h
       WHERE h.sigla = o.sigla

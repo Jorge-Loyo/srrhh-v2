@@ -322,11 +322,11 @@ export function crearRepoEscritura(
       return Number(await tx.$executeRawUnsafe(SQL_SUB_ESTADO))
     },
     async hayCorridaEscritura() {
-      const f = await tx.$queryRawUnsafe<{ n: number }[]>("SELECT count(*)::int AS n FROM sync_corridas WHERE modo = 'escritura'")
+      const f = await tx.$queryRawUnsafe<{ n: number }[]>("SELECT count(*)::int AS n FROM dim_sync_corridas WHERE modo = 'escritura'")
       return Number(f[0]?.n ?? 0) > 0
     },
     async registrarCorrida(modo: string, excelSha256: string | null, resumen: unknown) {
-      await tx.$executeRawUnsafe('INSERT INTO sync_corridas (id, modo, excel_sha256, resumen) VALUES ($1::uuid, $2, $3, $4::jsonb)', randomUUID(), modo, excelSha256, JSON.stringify(resumen))
+      await tx.$executeRawUnsafe('INSERT INTO dim_sync_corridas (id, modo, excel_sha256, resumen) VALUES ($1::uuid, $2, $3, $4::jsonb)', randomUUID(), modo, excelSha256, JSON.stringify(resumen))
     },
     async datosVerificacion(): Promise<DatosVerificacion> {
       const estados = await tx.$queryRawUnsafe<{ estado: string; n: number }[]>(
