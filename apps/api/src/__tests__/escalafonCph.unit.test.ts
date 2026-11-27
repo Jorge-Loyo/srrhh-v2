@@ -71,7 +71,7 @@ describe('código de cargo según el nombre del escalafón (los dos nombres)', (
     try {
       const esperado = modo === 'msgc' ? 'CPH-P' : 'CPH-POF'
       for (const escalafon of [BASE_ACTUAL.nombre, BASE_NUEVA.nombre]) {
-        expect(prefijoDeCargo({ escalafon, unificadorPuesto: 'POF', agrupador: null })).toBe(esperado)
+        expect(prefijoDeCargo({ escalafon, literalPuesto: 'POF' })).toBe(esperado)
       }
     } finally {
       delete process.env.NOMENCLATURA_CODIGO_CARGO

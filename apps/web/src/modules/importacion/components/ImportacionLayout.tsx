@@ -14,6 +14,7 @@ const TABS = [
   { to: '/bajas-consolidadas', label: 'Bajas Consolidadas', icono: '📄', end: true,  permiso: { modulo: 'bajas-sial', accion: 'tab:bajas-consolidadas' } },
   { to: '/organigrama/arbol', label: 'Árbol Organigrama',  icono: '🌳', end: false, permiso: { modulo: 'configuracion', accion: 'tab:arbol-organigrama' } },
   { to: '/pou/carga',         label: 'Carga POU',          icono: '📥', end: false, permiso: { modulo: 'configuracion', accion: 'tab:carga-pou' } },
+  { to: '/carga-semanal',     label: 'Carga Semanal',      icono: '📂', end: true,  permiso: { modulo: 'carga_semanal', accion: 'ver' } },
 ]
 
 export function ImportacionLayout() {

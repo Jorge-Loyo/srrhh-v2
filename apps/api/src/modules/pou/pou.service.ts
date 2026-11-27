@@ -39,8 +39,6 @@ export interface TriangulacionRow {
   codigo: string
   estadoCargo: string
   subEstado: string | null
-  unificadorPuesto: string | null
-  agrupador: string | null
   especialidadLegacy: string | null
   fechaVacante: Date | null
   tieneConcurso: boolean
@@ -78,9 +76,12 @@ export interface ComparacionPouRow {
   enNorma: boolean
 }
 
-// Mapeo de literal_puesto del cargo → (perfil, especialidad) del documento POU.
-// Los CPH-G tienen unificador_puesto='POU Guardia' y agrupador=NULL, por lo que
-// el matcheo se hace exclusivamente por literal_puesto.
+// Criterio POU Guardia: cargos CPH-G identificados por literal_puesto.
+// Reemplaza el viejo unificador_puesto = 'POU Guardia' (columna dropeada).
+const COND_POU_GUARDIA = `(
+  UPPER(c.literal_puesto) LIKE '%GUARDIA%'
+  OR UPPER(c.literal_puesto) LIKE '%GUARDIA MEDICO%'
+)`
 const CASE_PERFIL = `
   CASE UPPER(c.literal_puesto)
     WHEN 'ESPECIALISTA EN LA GUARDIA MEDICO' THEN 'especialista en la guardia medico'
@@ -151,7 +152,7 @@ export async function detalleCargosComparacionService(
     LEFT JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
     LEFT JOIN personas p ON p.id = o.persona_id
     WHERE h.sigla = $1
-      AND c.unificador_puesto = 'POU Guardia'
+      AND ${COND_POU_GUARDIA}
       AND c.estado IN ('vigente','validacion_vacante')
       AND c.deleted_at IS NULL
       AND ${CASE_PERFIL} = $2
@@ -192,7 +193,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
              c.sub_estado, c.estado
       FROM cargos c
       JOIN hospitales h ON h.id = c.hospital_id
-      WHERE c.unificador_puesto = 'POU Guardia'
+      WHERE ${COND_POU_GUARDIA}
         AND c.estado IN ('vigente','validacion_vacante')
         AND c.deleted_at IS NULL
         ${filtroSiglaCC}
@@ -214,7 +215,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
       FROM pou p
       JOIN hospitales h ON h.sigla = p.sigla
       ${filtroPou}
-    )
+    ),
     -- Cargos en sistema que no matchearon ninguna fila POU (pou_perfil IS NULL)
     cargos_sin_norma AS (
       SELECT sigla, pou_especialidad,
@@ -268,47 +269,79 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
 }
 
 export async function triangularPouService(sigla?: string): Promise<TriangulacionRow[]> {
-  const rows = sigla
-    ? await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
-               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
-               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
-        FROM v_pou_triangulacion
-        WHERE sigla = ${sigla}`
-    : await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
-               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
-               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
-        FROM v_pou_triangulacion`
+  const filtroSigla = sigla ? `AND h.sigla = '${sigla.replace(/'/g, "''")}'` : ''
+
+  // Reemplaza v_pou_triangulacion (dropeada en Fase 1 junto con agrupador/
+  // unificador_puesto). Identifica cargos POU por literal_puesto LIKE '%GUARDIA%'.
+  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`
+    SELECT
+      h.sigla                                          AS sigla,
+      c.codigo                                         AS codigo,
+      c.estado::text                                   AS estado_cargo,
+      c.sub_estado::text                               AS sub_estado,
+      c.especialidad_legacy                            AS especialidad_legacy,
+      c.fecha_vacante                                  AS fecha_vacante,
+      EXISTS (
+        SELECT 1 FROM concursos_cph cc WHERE cc.cargo_id = c.id
+        UNION ALL
+        SELECT 1 FROM concursos_ceetps ce WHERE ce.cargo_id = c.id
+      )                                                AS tiene_concurso,
+      CASE
+        WHEN EXISTS (SELECT 1 FROM concursos_cph cc WHERE cc.cargo_id = c.id)    THEN 'cph'
+        WHEN EXISTS (SELECT 1 FROM concursos_ceetps ce WHERE ce.cargo_id = c.id) THEN 'ceetps'
+        ELSE NULL
+      END                                              AS tipo_concurso,
+      ${CASE_PERFIL}                                   AS pou_perfil,
+      ${CASE_ESPECIALIDAD}                             AS pou_especialidad,
+      p.dotacion_total                                 AS dotacion_total,
+      p.activos                                        AS pou_activos,
+      p.vacantes                                       AS pou_vacantes,
+      CASE
+        WHEN p.id IS NOT NULL                          THEN 'CON POU'
+        WHEN UPPER(c.literal_puesto) LIKE '%SUPLENTE%' THEN 'SUPLENTE'
+        WHEN ${CASE_PERFIL} IS NOT NULL                THEN 'SIN POU'
+        ELSE 'SIN CLASIFICAR'
+      END                                              AS estado_pou
+    FROM cargos c
+    JOIN hospitales h ON h.id = c.hospital_id
+    LEFT JOIN pou p
+      ON  p.sigla = h.sigla
+      AND p.perfil       = ${CASE_PERFIL}
+      AND p.especialidad = ${CASE_ESPECIALIDAD}
+    WHERE ${COND_POU_GUARDIA}
+      AND c.estado IN ('vigente', 'validacion_vacante')
+      AND c.deleted_at IS NULL
+      ${filtroSigla}
+    ORDER BY h.sigla, c.codigo
+  `)
+
   return rows.map((r) => ({
-    sigla: r.sigla as string,
-    codigo: r.codigo as string,
-    estadoCargo: r.estado_cargo as string,
-    subEstado: r.sub_estado as string | null,
-    unificadorPuesto: r.unificador_puesto as string | null,
-    agrupador: r.agrupador as string | null,
+    sigla:             r.sigla as string,
+    codigo:            r.codigo as string,
+    estadoCargo:       r.estado_cargo as string,
+    subEstado:         r.sub_estado as string | null,
     especialidadLegacy: r.especialidad_legacy as string | null,
-    fechaVacante: r.fecha_vacante as Date | null,
-    tieneConcurso: r.tiene_concurso as boolean,
-    tipoConcurso: r.tipo_concurso as string | null,
-    pouPerfil: r.pou_perfil as string | null,
-    pouEspecialidad: r.pou_especialidad as string | null,
-    dotacionTotal: r.dotacion_total as number | null,
-    pouActivos: r.pou_activos as number | null,
-    pouVacantes: r.pou_vacantes as number | null,
-    estadoPou: r.estado_pou as TriangulacionRow['estadoPou'],
+    fechaVacante:      r.fecha_vacante as Date | null,
+    tieneConcurso:     Boolean(r.tiene_concurso),
+    tipoConcurso:      r.tipo_concurso as string | null,
+    pouPerfil:         r.pou_perfil as string | null,
+    pouEspecialidad:   r.pou_especialidad as string | null,
+    dotacionTotal:     r.dotacion_total != null ? Number(r.dotacion_total) : null,
+    pouActivos:        r.pou_activos != null ? Number(r.pou_activos) : null,
+    pouVacantes:       r.pou_vacantes != null ? Number(r.pou_vacantes) : null,
+    estadoPou:         r.estado_pou as TriangulacionRow['estadoPou'],
   }))
 }
 
 export async function listPouPorSiglaService(sigla: string): Promise<PouRow[]> {
-  return prisma.pou.findMany({
+  return prisma.dimPouOcupacion.findMany({
     where: { sigla },
     orderBy: [{ perfil: 'asc' }, { especialidad: 'asc' }],
   })
 }
 
 export async function listHospitalesPouService(): Promise<string[]> {
-  const rows = await prisma.pou.findMany({
+  const rows = await prisma.dimPouOcupacion.findMany({
     distinct: ['sigla'],
     select: { sigla: true },
     orderBy: { sigla: 'asc' },
@@ -317,7 +350,7 @@ export async function listHospitalesPouService(): Promise<string[]> {
 }
 
 export async function compararPouService(siglas: string[]): Promise<PouRow[]> {
-  return prisma.pou.findMany({
+  return prisma.dimPouOcupacion.findMany({
     where: { sigla: { in: siglas } },
     orderBy: [{ perfil: 'asc' }, { especialidad: 'asc' }, { sigla: 'asc' }],
   })
@@ -335,7 +368,7 @@ export async function compararPouService(siglas: string[]): Promise<PouRow[]> {
 const SHEET_NAME = 'base'
 const LOTE_UPLOAD = 500
 
-const COLUMN_MAPPING: { header: string; field: keyof Prisma.PouCreateManyInput; tipo: 'string' | 'int'; occurrence?: number }[] = [
+const COLUMN_MAPPING: { header: string; field: keyof Prisma.DimPouOcupacionCreateManyInput; tipo: 'string' | 'int'; occurrence?: number }[] = [
   { header: 'SIGLA', field: 'sigla', tipo: 'string' },
   { header: 'Descrip. Sigla', field: 'descripcionSigla', tipo: 'string' },
   { header: 'PERFIL', field: 'perfil', tipo: 'string' },
@@ -420,7 +453,7 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
     throw AppError.badRequest(`Faltan columnas en la hoja "Base": ${faltantesHeader.join(', ')}`)
   }
 
-  const filas: Prisma.PouCreateManyInput[] = []
+  const filas: Prisma.DimPouOcupacionCreateManyInput[] = []
   const vistos = new Set<string>()
 
   // La fila 1 es el header; el resto son datos (numeroFila = 1-based, igual que el Excel).
@@ -480,9 +513,9 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
   // Sin $transaction envolvente a propósito — mismo criterio que
   // reemplazarOrganigramaService: son miles de filas potenciales y el timeout
   // default de una transacción interactiva de Prisma es 5s.
-  await prisma.pou.deleteMany()
+  await prisma.dimPouOcupacion.deleteMany()
   for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
-    await prisma.pou.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
+    await prisma.dimPouOcupacion.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
   }
 
   await prisma.$executeRaw`

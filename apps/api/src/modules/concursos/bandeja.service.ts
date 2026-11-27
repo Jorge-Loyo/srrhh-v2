@@ -39,7 +39,6 @@ export function toBandejaItem(row: BandejaRow): ConcursoBandejaItem {
   return {
     id: row.id,
     tipo: row.tipoConcurso as ConcursoBandejaItem['tipo'],
-    cargoId: row.cargoId,
     hospitalId: row.hospitalId,
     hospitalSigla: row.hospital?.sigla ?? null,
     puesto: row.cargo?.literalPuesto ?? puestoExt,
@@ -75,7 +74,7 @@ export async function listBandejaConcursosService(query: BandejaConcursosQuery) 
     : undefined
 
   const where: Prisma.ConcursoWhereInput = {
-    // La bandeja es de concursos reales; `sin_concurso` no se lista.
+    // La bandeja lista solo concursos reales (cph o ceetps).
     tipoConcurso: tipo ?? { in: ['cph', 'ceetps'] },
     ...(hospitalId && { hospitalId }),
     ...(motivo && { motivoConcurso: motivo as never }),

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { loginSchema } from './auth.schema.js'
-import { loginService, refreshTokenService, logoutService } from './auth.service.js'
+import { loginService } from './auth.service.js'
 
 // Nombre de la cookie httpOnly que transporta el refresh token.
 // Mismo valor en login (Set-Cookie) y en refresh/logout (lectura).
@@ -34,26 +34,11 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/login', async (request, reply) => {
     const body = loginSchema.parse(request.body)
-    const result = await loginService(body, (payload) => app.jwt.sign(payload), request.ip)
-    const { refreshToken, ...rest } = result
-    reply.setCookie(REFRESH_COOKIE, refreshToken, cookieOpts(refreshMaxAge, isProd))
-    return reply.send({ data: rest })
+    const result = await loginService(body, (payload: object) => app.jwt.sign(payload))
+    return reply.send({ data: result })
   })
 
-  app.post('/refresh', async (request, reply) => {
-    const refreshToken = (request.cookies as Record<string, string | undefined>)[REFRESH_COOKIE]
-    if (!refreshToken) {
-      return reply.code(401).send({ error: 'Sin refresh token' })
-    }
-    const result = await refreshTokenService({ refreshToken }, (payload) => app.jwt.sign(payload), request.ip)
-    const { refreshToken: newRefreshToken, ...rest } = result
-    reply.setCookie(REFRESH_COOKIE, newRefreshToken, cookieOpts(refreshMaxAge, isProd))
-    return reply.send({ data: rest })
-  })
-
-  app.post('/logout', async (request, reply) => {
-    const refreshToken = (request.cookies as Record<string, string | undefined>)[REFRESH_COOKIE]
-    if (refreshToken) await logoutService({ refreshToken })
+  app.post('/logout', async (_request, reply) => {
     reply.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' })
     return reply.send({ data: { ok: true } })
   })

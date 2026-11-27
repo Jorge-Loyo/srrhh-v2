@@ -3,6 +3,7 @@ import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
 import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 import { useBloqueados } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
 
@@ -114,13 +115,13 @@ export function BloqueadosTab() {
                 {data.items.map((i) => (
                   <tr key={i.cargoId} className="hover:bg-gray-50 align-top">
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-800">{i.persona?.nombre ?? '—'}</div>
+                      <div className="font-medium text-gray-800">{capitalizarEtiqueta(i.persona?.nombre)}</div>
                       {i.persona?.cuil && <div className="text-xs text-gray-400">{i.persona.cuil}</div>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{i.hospitalSigla ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.carrera ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.puesto ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.especialidad ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.carrera)}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.puesto)}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.especialidad)}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{i.codigoRegistro ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{fechaCorta(i.fechaBloqueo)}</td>
                     <td className="px-4 py-3 text-gray-600">{i.bloqMotivo ?? '—'}</td>

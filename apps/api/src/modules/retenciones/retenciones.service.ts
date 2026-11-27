@@ -32,14 +32,10 @@ function esCargoDeConduccion(cargo: { codigo: string | null; literalPuesto: stri
 function prefijoDelCargo(cargo: {
   codigo: string | null
   escalafon: { nombre: string }
-  unificadorPuesto: string | null
-  agrupador: string | null
 }): string {
   if (cargo.codigo) return cargo.codigo.replace(/-\d{6}$/, '')
   return prefijoDeCargo({
     escalafon: cargo.escalafon.nombre,
-    unificadorPuesto: cargo.unificadorPuesto,
-    agrupador: cargo.agrupador,
   })
 }
 
@@ -55,9 +51,11 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
   if (!ocupacionActiva) throw AppError.conflict('El cargo no tiene una ocupación activa para retener')
 
   const conduccion = esCargoDeConduccion(cargo)
-  const tipoOrigen = conduccion ? 'TTR' : 'R'
+  // TTR ya no existe — todo remplazante es R. La conducción se identifica
+  // por el prefijo/literal del cargo (R-CPH-J-*, ENF-J-*, etc.).
+  const tipoOrigen = 'R'
 
-  if (tipoOrigen === 'TTR' && (!body.periodoDesde || !body.periodoHasta)) {
+  if (conduccion && (!body.periodoDesde || !body.periodoHasta)) {
     throw AppError.badRequest('periodoDesde y periodoHasta son obligatorios para retener un cargo de conducción')
   }
 
@@ -111,8 +109,6 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
         especialidadPuestoId: cargo.especialidadPuestoId,
         codigoRegistroId: cargo.codigoRegistroId,
         literalPuesto: cargo.literalPuesto,
-        agrupador: cargo.agrupador,
-        unificadorPuesto: cargo.unificadorPuesto,
         regimen: cargo.regimen,
         codigoRepa: cargo.codigoRepa,
         estado: 'vigente',
@@ -123,7 +119,7 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
         tipoOrigen,
         cargoRetenidoId: cargo.id,
         cargoBaseId,
-        ...(tipoOrigen === 'TTR' && {
+        ...(conduccion && {
           periodoDesde: new Date(body.periodoDesde!),
           periodoHasta: new Date(body.periodoHasta!),
         }),
@@ -559,8 +555,13 @@ export async function titularCesaService(body: TitularCesaBody) {
 export async function renovarPeriodoService(cargoId: string, body: RenovarPeriodoBody) {
   const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
-  if (cargo.tipoOrigen !== 'TTR') {
-    throw AppError.badRequest('Solo se puede renovar el período de un cargo de conducción (TTR)')
+  // TTR ya no existe — todo remplazante es R. Los de conducción (R-CPH-J-*)
+  // son los que tienen período asignado y pueden renovarse.
+  if (cargo.tipoOrigen !== 'R') {
+    throw AppError.badRequest('Solo se puede renovar el período de un cargo remplazante (R)')
+  }
+  if (!esCargoDeConduccion(cargo)) {
+    throw AppError.badRequest('Solo se puede renovar el período de un cargo de conducción')
   }
   if (cargo.estado !== 'vigente') {
     throw AppError.conflict('Solo se puede renovar un cargo vigente')
@@ -613,8 +614,9 @@ function urgenciaDeDias(dias: number): 'ok' | 'aviso' | 'recordatorio' | 'critic
 }
 
 export async function listVencimientosService() {
+  // Vigila R-CPH-J-* (conducción) con período asignado — TTR ya no existe.
   const cargos = await prisma.cargo.findMany({
-    where: { estado: 'vigente', tipoOrigen: 'TTR', periodoHasta: { not: null } },
+    where: { estado: 'vigente', tipoOrigen: 'R', periodoHasta: { not: null } },
     select: {
       id: true,
       codigo: true,

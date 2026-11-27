@@ -25,72 +25,63 @@ describe('prefijoDeCargo', () => {
     it('escalafon "Médicos" (valor real BD) de planta → CPH-POF', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Médico de Planta POF',
-        agrupador: 'Medico de Planta',
+        literalPuesto: 'Médico de Planta POF',
       })).toBe('CPH-POF')
     })
 
     it('escalafon "Nueva Carrera Profesional Hospitalaria" (valor real BD) de planta → CPH-POF', () => {
       expect(prefijoDeCargo({
         escalafon: 'Nueva Carrera Profesional Hospitalaria',
-        unificadorPuesto: 'Médico de Planta POF',
-        agrupador: 'Medico de Planta',
+        literalPuesto: 'Médico de Planta POF',
       })).toBe('CPH-POF')
     })
 
     it('escalafon "Médicos" de guardia → CPH-POU', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Médico de Guardia POU',
-        agrupador: 'Medico de Guardia',
+        literalPuesto: 'Médico de Guardia POU',
       })).toBe('CPH-POU')
     })
 
     it('escalafon "Nueva Carrera Profesional Hospitalaria" de guardia → CPH-POU', () => {
       expect(prefijoDeCargo({
         escalafon: 'Nueva Carrera Profesional Hospitalaria',
-        unificadorPuesto: 'Médico de Guardia POU',
-        agrupador: 'Medico de Guardia',
+        literalPuesto: 'Médico de Guardia POU',
       })).toBe('CPH-POU')
     })
 
     it('CPH jefe de planta → CPH-J-POF', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Jefatura POF',
-        agrupador: 'Jefe de Seccion',
+        literalPuesto: 'Jefatura POF',
       })).toBe('CPH-J-POF')
     })
 
     it('CPH jefe de guardia → CPH-J-POU', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Jefatura POU Guardia',
-        agrupador: 'Jefe de Guardia',
+        literalPuesto: 'Jefatura POU Guardia',
       })).toBe('CPH-J-POU')
     })
 
     it('CPH Director → CPH-D', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Director CPH',
-        agrupador: 'Director (01)',
+        literalPuesto: 'Director (01)',
       })).toBe('CPH-D')
     })
 
     it('CPH Sub-Director → CPH-SD', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
-        unificadorPuesto: 'Sub-Director CPH',
-        agrupador: 'Sub-Director (03)',
+        literalPuesto: 'Sub-Director (03)',
       })).toBe('CPH-SD')
     })
 
     it('escalafon "CPH" exacto → CPH-POF', () => {
       expect(prefijoDeCargo({
         escalafon: 'CPH',
-        unificadorPuesto: null,
-        agrupador: null,
+        literalPuesto: null,
       })).toBe('CPH-POF')
     })
   })
@@ -101,16 +92,14 @@ describe('prefijoDeCargo', () => {
     it('"Nueva Carrera Enfermería" (valor real BD) → ENF', () => {
       expect(prefijoDeCargo({
         escalafon: 'Nueva Carrera Enfermería',
-        unificadorPuesto: 'Enfermero/a POF',
-        agrupador: 'Enfermero/a',
+        literalPuesto: 'Enfermero/a POF',
       })).toBe('ENF')
     })
 
     it('escalafon "ENF" exacto → ENF', () => {
       expect(prefijoDeCargo({
         escalafon: 'ENF',
-        unificadorPuesto: null,
-        agrupador: null,
+        literalPuesto: null,
       })).toBe('ENF')
     })
   })
@@ -121,16 +110,14 @@ describe('prefijoDeCargo', () => {
     it('CEETPS de planta → TEC-POF', () => {
       expect(prefijoDeCargo({
         escalafon: 'CEETPS',
-        unificadorPuesto: 'Técnico POF',
-        agrupador: 'Tecnico de Planta',
+        literalPuesto: 'Técnico POF',
       })).toBe('TEC-POF')
     })
 
     it('CEETPS de guardia → TEC-POU', () => {
       expect(prefijoDeCargo({
         escalafon: 'CEETPS',
-        unificadorPuesto: 'Técnico POU Guardia',
-        agrupador: 'Tecnico de Guardia',
+        literalPuesto: 'Técnico POU Guardia',
       })).toBe('TEC-POU')
     })
   })
@@ -141,32 +128,28 @@ describe('prefijoDeCargo', () => {
     it('EG base → EG', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
-        unificadorPuesto: 'Administrativo',
-        agrupador: 'Administrativo',
+        literalPuesto: 'Administrativo',
       })).toBe('EG')
     })
 
     it('EG Jefe → EG-J', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
-        unificadorPuesto: 'Jefe de División',
-        agrupador: 'Jefe EG',
+        literalPuesto: 'Jefe de División',
       })).toBe('EG-J')
     })
 
     it('EG Director → EG-D', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
-        unificadorPuesto: 'Director EG',
-        agrupador: 'Director EG',
+        literalPuesto: 'Director EG',
       })).toBe('EG-D')
     })
 
     it('EG Gerencial → EG-G', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
-        unificadorPuesto: 'Gerencial',
-        agrupador: 'Gerencial',
+        literalPuesto: 'Gerencial',
       })).toBe('EG-G')
     })
   })
@@ -177,16 +160,14 @@ describe('prefijoDeCargo', () => {
     it('RG → RG-CG', () => {
       expect(prefijoDeCargo({
         escalafon: 'Régimen Gerencial',
-        unificadorPuesto: null,
-        agrupador: null,
+        literalPuesto: null,
       })).toBe('RG-CG')
     })
 
     it('escalafon "RG" exacto → RG-CG', () => {
       expect(prefijoDeCargo({
         escalafon: 'RG',
-        unificadorPuesto: null,
-        agrupador: null,
+        literalPuesto: null,
       })).toBe('RG-CG')
     })
   })
@@ -195,15 +176,15 @@ describe('prefijoDeCargo', () => {
 
   describe('Suplentes / Residentes / Docentes', () => {
     it('Suplentes → SG', () => {
-      expect(prefijoDeCargo({ escalafon: 'Suplentes de Guardia', unificadorPuesto: null, agrupador: null })).toBe('SG')
+      expect(prefijoDeCargo({ escalafon: 'Suplentes de Guardia', literalPuesto: null })).toBe('SG')
     })
 
     it('Residentes → RES', () => {
-      expect(prefijoDeCargo({ escalafon: 'Residentes', unificadorPuesto: null, agrupador: null })).toBe('RES')
+      expect(prefijoDeCargo({ escalafon: 'Residentes', literalPuesto: null })).toBe('RES')
     })
 
     it('Docentes → DOC', () => {
-      expect(prefijoDeCargo({ escalafon: 'Docentes', unificadorPuesto: null, agrupador: null })).toBe('DOC')
+      expect(prefijoDeCargo({ escalafon: 'Docentes', literalPuesto: null })).toBe('DOC')
     })
   })
 
@@ -211,15 +192,15 @@ describe('prefijoDeCargo', () => {
 
   describe('Fallback', () => {
     it('escalafon desconocido → CARGO', () => {
-      expect(prefijoDeCargo({ escalafon: 'Desconocido XYZ', unificadorPuesto: null, agrupador: null })).toBe('CARGO')
+      expect(prefijoDeCargo({ escalafon: 'Desconocido XYZ', literalPuesto: null })).toBe('CARGO')
     })
 
     it('todos null → CARGO', () => {
-      expect(prefijoDeCargo({ escalafon: null, unificadorPuesto: null, agrupador: null })).toBe('CARGO')
+      expect(prefijoDeCargo({ escalafon: null, literalPuesto: null })).toBe('CARGO')
     })
 
     it('strings vacíos → CARGO', () => {
-      expect(prefijoDeCargo({ escalafon: '', unificadorPuesto: '', agrupador: '' })).toBe('CARGO')
+      expect(prefijoDeCargo({ escalafon: '', literalPuesto: '' })).toBe('CARGO')
     })
   })
 })

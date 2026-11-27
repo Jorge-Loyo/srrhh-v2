@@ -25,6 +25,7 @@
 // match coincida con el resto del pipeline.
 import { ANEXO_II_83 } from '../padron/derivarRegimen.js'
 import { normalizarTexto } from '@srrhh/normalizacion'
+import { Prisma } from '@prisma/client'
 
 /** Códigos de registro que entran COMPLETOS: 37/22 (CPH), 23 (CPH guardia), 85/87 (CEETPS). */
 export const CODIGOS_REGISTRO_GESTIONABLES_PLENOS = ['37', '22', '23', '85', '87'] as const
@@ -86,4 +87,25 @@ export function esCargoGestionable({
   literalPuesto: string | null | undefined
 }): boolean {
   return tipoConcursoDeCargo({ codigoRegistro, literalPuesto }) !== null
+}
+
+/**
+ * Predicado SQL "gestionable" para inyectar en CTEs. Espejo de esCargoGestionable:
+ * PLENOS entran completos; el '83' entra solo si el literal normalizado ∈ ANEXO_II_83.
+ */
+export function sqlCargoGestionable(alias: string): Prisma.Sql {
+  const c = Prisma.raw(alias)
+  const plenos = Prisma.join([...CODIGOS_REGISTRO_GESTIONABLES_PLENOS])
+  const anexoII = Prisma.join([...ANEXO_II_83])
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM codigos_registro cr
+    WHERE cr.id = ${c}.codigo_registro_id
+      AND (
+        cr.codigo IN (${plenos})
+        OR (
+          cr.codigo = '83'
+          AND btrim(regexp_replace(lower(unaccent(${c}.literal_puesto)), '\\s+', ' ', 'g')) IN (${anexoII})
+        )
+      )
+  )`
 }

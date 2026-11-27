@@ -12,36 +12,6 @@ export const refListQuerySchema = z.object({
 })
 export type RefListQuery = z.infer<typeof refListQuerySchema>
 
-export const agrupadorSchema = z.object({
-  cruce: z.string().trim().min(1).max(300),
-  escalafon: z.string().trim().min(1).max(150),
-  litPuesto: z.string().trim().min(1).max(200),
-  agrupador: z.string().trim().min(1).max(150),
-  activo: z.boolean().optional(),
-})
-export const agrupadorUpdateSchema = agrupadorSchema.partial()
-export type AgrupadorBody = z.infer<typeof agrupadorSchema>
-
-export const unificadorPuestoSchema = z.object({
-  cruce: z.string().trim().min(1).max(400),
-  litCodReg: z.string().trim().min(1).max(150),
-  litPuesto: z.string().trim().min(1).max(200),
-  unificador: z.string().trim().min(1).max(200),
-  activo: z.boolean().optional(),
-})
-export const unificadorPuestoUpdateSchema = unificadorPuestoSchema.partial()
-export type UnificadorPuestoBody = z.infer<typeof unificadorPuestoSchema>
-
-export const especialidadCuilSchema = z.object({
-  tipo: z.string().trim().min(1).max(20),
-  cuil: z.string().trim().min(1).max(11),
-  cuilYRol: z.string().trim().max(50).optional(),
-  especialidad: z.string().trim().min(1).max(200),
-  activo: z.boolean().optional(),
-})
-export const especialidadCuilUpdateSchema = especialidadCuilSchema.partial()
-export type EspecialidadCuilBody = z.infer<typeof especialidadCuilSchema>
-
 export const abreviaturaTecnicaSchema = z.object({
   sigla: z.string().trim().min(1).max(50),
   activo: z.boolean().optional(),
@@ -72,15 +42,6 @@ export const correccionEspecialidadSchema = z.object({
 })
 export const correccionEspecialidadUpdateSchema = correccionEspecialidadSchema.partial()
 export type CorreccionEspecialidadBody = z.infer<typeof correccionEspecialidadSchema>
-
-export const especialidadPorPuestoSchema = z.object({
-  agrupador: z.string().trim().min(1).max(150),
-  especialidad: z.string().trim().min(1).max(200),
-  purezaPct: z.coerce.number().int().min(0).max(100).optional(),
-  activo: z.boolean().optional(),
-})
-export const especialidadPorPuestoUpdateSchema = especialidadPorPuestoSchema.partial()
-export type EspecialidadPorPuestoBody = z.infer<typeof especialidadPorPuestoSchema>
 
 export const conectorMinusculaSchema = z.object({
   conector: z.string().trim().min(1).max(30),

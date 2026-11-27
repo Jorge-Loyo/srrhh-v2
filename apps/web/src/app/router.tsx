@@ -28,6 +28,8 @@ const OrganigramaHomePage = lazy(() => import('../modules/organigrama/pages/Orga
 const OrganigramaDetallePage = lazy(() => import('../modules/organigrama/pages/OrganigramaDetallePage').then((m) => ({ default: m.OrganigramaDetallePage })))
 const OrganigramaArbolPage = lazy(() => import('../modules/organigrama/pages/OrganigramaArbolPage').then((m) => ({ default: m.OrganigramaArbolPage })))
 const OrganigramaLayout = lazy(() => import('../modules/organigrama/components/OrganigramaLayout').then((m) => ({ default: m.OrganigramaLayout })))
+const CargaSemanalPage = lazy(() => import('../modules/carga-semanal/pages/CargaSemanalPage').then((m) => ({ default: m.CargaSemanalPage })))
+const CargaSesionRevisionPage = lazy(() => import('../modules/carga-semanal/pages/CargaSesionRevisionPage').then((m) => ({ default: m.CargaSesionRevisionPage })))
 const PouHomePage = lazy(() => import('../modules/pou/pages/PouHomePage').then((m) => ({ default: m.PouHomePage })))
 const PouDetallePage = lazy(() => import('../modules/pou/pages/PouDetallePage').then((m) => ({ default: m.PouDetallePage })))
 const PouComparativaPage = lazy(() => import('../modules/pou/pages/PouComparativaPage').then((m) => ({ default: m.PouComparativaPage })))
@@ -78,6 +80,9 @@ const AreaProgramaticaDetailPage = lazy(() => import('../modules/areas-programat
 const CesacDetailPage = lazy(() => import('../modules/areas-programaticas/pages/CesacDetailPage').then((m) => ({ default: m.CesacDetailPage })))
 const UnidadFijaDetailPage = lazy(() => import('../modules/areas-programaticas/pages/UnidadFijaDetailPage').then((m) => ({ default: m.UnidadFijaDetailPage })))
 const PresentacionPage = lazy(() => import('../modules/presentacion/pages/PresentacionPage').then((m) => ({ default: m.PresentacionPage })))
+const DimIncidenciasPage = lazy(() => import('../modules/dim-incidencias/pages/DimIncidenciasPage').then((m) => ({ default: m.DimIncidenciasPage })))
+const DimConcursosPage = lazy(() => import('../modules/dim-incidencias/pages/DimConcursosPage').then((m) => ({ default: m.DimConcursosPage })))
+const AnalisisCargaPage = lazy(() => import('../modules/dim-incidencias/pages/AnalisisCargaPage').then((m) => ({ default: m.AnalisisCargaPage })))
 const PerfilPage = lazy(() => import('../modules/perfil/pages/PerfilPage').then((m) => ({ default: m.PerfilPage })))
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
@@ -121,6 +126,13 @@ export const router = createBrowserRouter([
                 element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:carga-pou' }} />,
                 children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
               },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'carga_semanal', accion: 'ver' }} />,
+                children: [
+                { path: 'carga-semanal', element: <CargaSemanalPage /> },
+                { path: 'carga-semanal/:sesionId', element: <CargaSesionRevisionPage /> },
+              ],
+              },
             ],
           },
           {
@@ -130,6 +142,14 @@ export const router = createBrowserRouter([
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'incidencias', element: <IncidenciasPage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'dim_incidencias', accion: 'ver' }} />,
+            children: [
+              { path: 'dim-incidencias', element: <DimIncidenciasPage /> },
+              { path: 'dim-incidencias/concursos', element: <DimConcursosPage /> },
+              { path: 'dim-incidencias/analisis', element: <AnalisisCargaPage /> },
+            ],
+          },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,

@@ -102,7 +102,8 @@ export function AppShell() {
   const verGestionCargos = cargosGestionSubitems.length > 0
   const verConcursosCph  = can(user, 'concursos-cph', 'ver')
   const verConcursosCeetps = can(user, 'concursos-ceetps', 'ver')
-  const verIncidencias   = can(user, 'incidencias', 'ver')
+  const verIncidencias      = can(user, 'incidencias', 'ver')
+  const verDimIncidencias    = can(user, 'dim_incidencias', 'ver')
   const verKanbanSgrasv      = can(user, 'tareas', 'ver_kanban_sgrasv')
   const verKanbanSupervisor  = can(user, 'tareas', 'ver_kanban_supervisor')
 
@@ -111,7 +112,7 @@ export function AppShell() {
 
   // Un grupo es visible si al menos uno de sus ítems lo es.
   const grupoVisualizacion = verInicio || verReportes || verKpis || verDotacion || verOrganigrama || verPou || verPersonas || verBajas || verRetenciones || verCargos
-  const grupoGestion       = verGestionCargos || verConcursosCph || verConcursosCeetps || verIncidencias || verKanbanSgrasv || verKanbanSupervisor
+  const grupoGestion       = verGestionCargos || verConcursosCph || verConcursosCeetps || verIncidencias || verDimIncidencias || verKanbanSgrasv || verKanbanSupervisor
   const grupoVistaAdmin    = verImportacion || verConfiguracion
 
   const gestionActivo = itemGestionActivo(location.pathname)
@@ -296,6 +297,20 @@ export function AppShell() {
             <NavLink to="/incidencias" className={itemClass} title={collapsed ? 'Incidencias' : undefined}>
               <span className="text-base shrink-0">📌</span>
               {!collapsed && <span className="truncate">Incidencias</span>}
+            </NavLink>
+          )}
+
+          {/* Incidencias carga semanal (dim_*) — solo administrador */}
+          {verDimIncidencias && (
+            <NavLink to="/dim-incidencias" className={itemClass} title={collapsed ? 'Incidencias MSGC' : undefined}>
+              <span className="text-base shrink-0">🔔</span>
+              {!collapsed && <span className="truncate">Incidencias MSGC</span>}
+            </NavLink>
+          )}
+          {verDimIncidencias && (
+            <NavLink to="/dim-incidencias/concursos" className={itemClass} title={collapsed ? 'Concursos MSGC' : undefined}>
+              <span className="text-base shrink-0">📂</span>
+              {!collapsed && <span className="truncate">Concursos MSGC</span>}
             </NavLink>
           )}
 

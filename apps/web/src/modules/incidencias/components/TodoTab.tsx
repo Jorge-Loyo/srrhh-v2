@@ -4,6 +4,7 @@ import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
 import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 import { useTodoIncidencias, type TipoIncidenciaSlug } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
 
@@ -129,11 +130,11 @@ export function TodoTab({
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{i.idSial ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{i.codigo ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{i.hospitalSigla ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.carrera ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.puesto ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{i.especialidad ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.carrera)}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.puesto)}</td>
+                    <td className="px-4 py-3 text-gray-600">{capitalizarEtiqueta(i.especialidad)}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-800">{i.personaNombre ?? '—'}</div>
+                      <div className="font-medium text-gray-800">{capitalizarEtiqueta(i.personaNombre)}</div>
                       {i.personaCuil && <div className="text-xs text-gray-400">{i.personaCuil}</div>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{i.detalle}</td>

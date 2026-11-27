@@ -57,6 +57,9 @@ export interface ConcursoCandidato {
   literalPuesto: string | null
   especialidad: string | null
   hospital: string | null
+  cuilCoincide: boolean
+  matchPuesto: boolean
+  esSugerido: boolean
 }
 
 const PENDIENTES_KEY = ['incidencias', 'pendientes'] as const
@@ -64,6 +67,7 @@ const PENDIENTES_KEY = ['incidencias', 'pendientes'] as const
 export function useIncidenciasPendientes() {
   return useQuery({
     queryKey: PENDIENTES_KEY,
+    staleTime: 60_000,
     queryFn: async () => {
       const res = await apiClient.get<{ data: PendientesResponse }>(
         '/api/v1/incidencias/pendientes',
@@ -210,7 +214,6 @@ export interface ConciliacionIncidencias {
 
 export interface ResumenIncidencias {
   tabs: Record<TipoIncidenciaSlug | 'todo', number>
-  conciliacion: ConciliacionIncidencias
   contexto: ContextoIncidencias
   generadoAt: string
 }
@@ -224,41 +227,35 @@ export interface Paginacion {
 
 export interface BajaSinConcursoItem {
   cargoId: string
-  codigo: string | null
-  idSial: string | null
+  codigo: string
+  idSial: string
   hospitalSigla: string | null
   carrera: string | null
+  codigoRegistro: string | null
   puesto: string | null
   especialidad: string | null
-  persona: { cuil: string | null; nombre: string | null } | null
   estadoCargo: 'vigente' | 'validacion_vacante'
   subEstado: 'ocupado' | 'vacante' | 'concurso' | null
-  estadoDesde: string | null
-  deteccion: {
-    origen: 'baja_sial' | 'padron'
-    texto: string
-    fechaDeteccion: string | null
-    fechaBaja: string | null
-    fechaPadron: string | null
-    fuenteFechaPadron: string
-    enBajaSial: boolean
-    ausentePadron: boolean
+  persona: { cuil: string | null; nombre: string | null } | null
+  bajaSial: {
+    cargoHasta: string | null
     motBaja: string | null
     docRespBaja: string | null
+    fechaArchivo: string
   }
-  diasSinCubrir: number | null
   bajaFormal: {
+    id: string
     estado: 'resolucion_a_la_firma' | 'pendiente' | 'confirmada' | 'anulada'
     generaConcurso: boolean
+    eeBaja: string | null
   } | null
-  tuvoConcursoCerrado: boolean
+  diasDesdeBaja: number | null
 }
 
 export interface BajaSinConcursoResponse {
   items: BajaSinConcursoItem[]
   meta: Paginacion
   generadoAt: string
-  porOrigen: { baja_sial: number; padron: number }
   contexto: ContextoIncidencias
 }
 
@@ -303,7 +300,6 @@ export interface BajaSinConcursoParams {
   pageSize: number
   q?: string
   carrera?: string
-  origen?: 'baja_sial' | 'padron'
   estadoCargo?: 'vigente' | 'validacion_vacante'
 }
 

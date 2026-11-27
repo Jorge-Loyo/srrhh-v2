@@ -111,8 +111,6 @@ export const createCargoSchema = z.object({
   // completan en el backend a partir del nombre canónico de estos ids.
   puestoCargoId:       z.string().uuid(),
   especialidadPuestoId: z.string().uuid().optional(),
-  agrupador:        z.string().trim().max(150).optional(),
-  unificadorPuesto: z.string().trim().max(200).optional(),
   regimen:          z.string().trim().max(50).optional(),
   // Expediente o decreto que autoriza el alta — se persiste en BD (S7-2)
   expediente:       z.string().trim().max(150).optional(),

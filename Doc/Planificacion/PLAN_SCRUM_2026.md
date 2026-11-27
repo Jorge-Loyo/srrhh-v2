@@ -1,4 +1,4 @@
-# PLAN SCRUM — SRRHH v2
+﻿# PLAN SCRUM — SRRHH v2
 
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
@@ -75,7 +75,7 @@
 | CPH-T   | Permisos por pestaña en Concursos CPH                                                                                             | ✅     | 2026-11-04 | —                     | Desplegado `a53a8de`                                                       |
 | RIND    | Reportes: Indicadores de cargos (mes actual vs anterior, por carrera/estado)                                                      | ✅     | 2026-11-04 | —                     | Desplegado `a53a8de`. Scripts de validación en `scripts/sql/`              |
 | SUBE    | Fix `sub_estado` del cargo + recálculo masivo + CR 22→37 CPH                                                                      | ✅     | 2026-11-04 | —                     | Desplegado `a53a8de`. Scripts de datos aplicados a Neon                    |
-| INC-EXP | **Expansión de Incidencias** (monitoreo ciclo de vida del cargo)                                                                  | 📋     | —          | F1 a F6               | `Sprints/SPRINT_incidencias_expansion.md` — diseño en curso                |
+| INC-EXP | **Expansión de Incidencias** (monitoreo ciclo de vida del cargo)                                                                  | 📋     | —          | F1 a F6               | `Sprints/SPRINT_incidencias_expansion.md` — diseño en curso                |`n| 27      | **Modularización y refactoring del frontend** — AppShell, router, CargosPage, useCatalogos                                                                                                                                                                                        | 📋     | —          | S27-A1..D1, S27-J1..J2 | ``Sprints/SPRINT_27_modularizacion_frontend.md``                             |
 
 **Leyenda:** ✅ Completado · 📋 Planificado (no empezado) · ⚠️ Parcial / con pendientes · `†` completo salvo verificación visual en navegador · `·post` = post-sprint (mejoras/fixes sobre un sprint ya cerrado) · `·ret` = línea Retenciones (numeración propia paralela).
 

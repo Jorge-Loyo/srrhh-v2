@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+﻿import { randomUUID } from 'node:crypto'
 import { Agent as HttpAgent } from 'node:http'
 import { Agent as HttpsAgent } from 'node:https'
 import FormData from 'form-data'
@@ -77,8 +77,6 @@ export { parseFechaDDMMYYYY, toISO, stripCompletado, categoriaBaja, CENTINELA_IS
 function esAutoAprobable(datos: Record<string, string>): boolean {
   const prefijo = prefijoDeCargo({
     escalafon: datos.escalafon ?? null,
-    unificadorPuesto: datos.unificador_de_puestos ?? null,
-    agrupador: datos.agrupador ?? null,
     codigoRegistro: datos.codigo_de_registro ?? null,
   })
   return ['RES', 'RB', 'RPB', 'RES-J', 'DOC', 'AS'].includes(prefijo) || prefijo.startsWith('AS-')
@@ -147,8 +145,6 @@ interface OcupacionFinalRow {
   cargo: {
     literalPuesto: string | null
     especialidadLegacy: string | null
-    agrupador: string | null
-    unificadorPuesto: string | null
     hospital: { sigla: string }
     escalafon: { nombre: string }
     // FASE 2 (histórico denso): el paso 7 incluye el código de registro para
@@ -406,8 +402,6 @@ function normCmp(v: unknown): string {
 const CAMPOS_CARGO: Record<string, string> = {
   literal_puesto: 'literalPuesto',
   especialidad: 'especialidadLegacy',
-  agrupador: 'agrupador',
-  unificador_de_puestos: 'unificadorPuesto',
   codigo_repa: 'codigoRepa',
   descripcion_repa: 'descripcionRepa',
   agrupamiento: 'agrupamiento',
@@ -462,11 +456,8 @@ async function calcularDiff(registros: RegistroPython[]) {
       estado: true, // requerido por el loop de Eliminados y el skip de Nuevos/Modificados
       literalPuesto: true,
       especialidadLegacy: true,
-      agrupador: true,
-      unificadorPuesto: true,
       codigoRepa: true,
       descripcionRepa: true,
-      agrupamiento: true,
       codigoRegistro: { select: { codigo: true } },
       hospital: { select: { sigla: true } },
       escalafon: { select: { nombre: true } },
@@ -493,7 +484,7 @@ async function calcularDiff(registros: RegistroPython[]) {
   })
 
   const actualesMap = new Map<string, (typeof cargosActuales)[number]>()
-  for (const c of cargosActuales) actualesMap.set(c.idSial, c)
+  for (const c of cargosActuales) if (c.idSial) actualesMap.set(c.idSial, c)
 
   const nuevosIds = new Set(nuevosMap.keys())
   const actualesIds = new Set(actualesMap.keys())
@@ -618,7 +609,6 @@ async function calcularDiff(registros: RegistroPython[]) {
         cuil_y_rol: ocup?.cuil ?? null,
         literal_puesto: actual.literalPuesto,
         especialidad: actual.especialidadLegacy,
-        agrupador: actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
         // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
         siglas: actual.hospital?.sigla ?? null,
@@ -797,11 +787,8 @@ async function calcularDiff(registros: RegistroPython[]) {
               estado: true,
               literalPuesto: true,
               especialidadLegacy: true,
-              agrupador: true,
-              unificadorPuesto: true,
               codigoRepa: true,
               descripcionRepa: true,
-              agrupamiento: true,
               codigoRegistro: { select: { codigo: true } },
               hospital: { select: { sigla: true } },
               escalafon: { select: { nombre: true } },
@@ -837,11 +824,8 @@ async function calcularDiff(registros: RegistroPython[]) {
           estado: true,
           literalPuesto: true,
           especialidadLegacy: true,
-          agrupador: true,
-          unificadorPuesto: true,
           codigoRepa: true,
           descripcionRepa: true,
-          agrupamiento: true,
           codigoRegistro: { select: { codigo: true } },
           hospital: { select: { sigla: true } },
           escalafon: { select: { nombre: true } },
@@ -1077,7 +1061,6 @@ async function calcularDiff(registros: RegistroPython[]) {
           codigo: true,
           literalPuesto: true,
           especialidadLegacy: true,
-          agrupador: true,
           hospital: { select: { sigla: true } },
           escalafon: { select: { nombre: true } },
         },
@@ -1099,7 +1082,6 @@ async function calcularDiff(registros: RegistroPython[]) {
         cuil_y_rol: o.cuil ?? null,
         literal_puesto: o.cargo.literalPuesto,
         especialidad: o.cargo.especialidadLegacy,
-        agrupador: o.cargo.agrupador,
         situacion_de_revista: o.situacionRevista ?? null,
         // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
         siglas: o.cargo.hospital?.sigla ?? null,
@@ -1709,8 +1691,6 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
             d.id,
             prefijoDeCargo({
               escalafon: datos.escalafon ?? null,
-              unificadorPuesto: datos.unificador_de_puestos ?? null,
-              agrupador: datos.agrupador ?? null,
               codigoRegistro: datos.codigo_de_registro ?? null,
             }),
           )
@@ -2169,8 +2149,6 @@ export async function aprobarSnapshotService(
         especialidadPuestoId: string | null
         literalPuesto: string | null
         especialidadLegacy: string | null
-        agrupador: string | null
-        unificadorPuesto: string | null
         regimen: string | null
         codigoRepa: string | null
         descripcionRepa: string | null
@@ -2313,7 +2291,6 @@ export async function aprobarSnapshotService(
         const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
           escalafonId: escalafon.id,
           literalPuesto: datos.literal_puesto ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
         // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor
         // (datos.especialidad_puesto_id del allowlist) si valida; si no, fallback
@@ -2329,8 +2306,6 @@ export async function aprobarSnapshotService(
         )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
-          agrupador: datos.agrupador ?? null,
           puestoCargo: puestoResuelto,
           tieneEspecialidad: Boolean(especialidadResuelta),
           codigoRegistro: datos.codigo_de_registro ?? null,
@@ -2365,8 +2340,6 @@ export async function aprobarSnapshotService(
           especialidadPuestoId: especialidadResuelta,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,
-          agrupador: datos.agrupador ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
           regimen: datos.regimen || null,
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
@@ -2494,7 +2467,6 @@ export async function aprobarSnapshotService(
         const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
           escalafonId: escalafon.id,
           literalPuesto: datos.literal_puesto ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
         // Especialidad ESTRICTA (REGLA DE ORO): match exacto o NULL. Nunca deriva
         // ni auto-crea (resolver puro, sin tx).
@@ -2506,8 +2478,6 @@ export async function aprobarSnapshotService(
         // Prefijo forzado por carrera (RES/DOC, SIN guion).
         const prefijoCalc = prefijoDeCargo({
           escalafon: escalafon.nombre,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
-          agrupador: datos.agrupador ?? null,
           puestoCargo: puesto,
           tieneEspecialidad: Boolean(especialidadPuestoId),
           codigoRegistro: datos.codigo_de_registro ?? null,
@@ -2545,12 +2515,9 @@ export async function aprobarSnapshotService(
             especialidadPuestoId,
             literalPuesto: datos.literal_puesto ?? null,
             especialidadLegacy: datos.especialidad ?? null,
-            agrupador: datos.agrupador ?? null,
-            unificadorPuesto: datos.unificador_de_puestos ?? null,
             regimen: datos.regimen || null,
             codigoRepa: datos.codigo_repa || null,
             descripcionRepa: datos.descripcion_repa || null,
-            agrupamiento: datos.agrupamiento || null,
             codigoRegistroId: decisionCrDesd.codigoRegistroId,
             regimenId: decisionRegDesd.regimenId,
             ...(motivosDesd.length > 0
@@ -2633,7 +2600,7 @@ export async function aprobarSnapshotService(
         personaId: persona.id,
         cargoId: cargo.id,
         idSialRol,
-        cuil: cuilDe(datos),
+        cuil: cuilDe(datos) ?? null,
         situacionRevista: datos.situacion_de_revista ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
         cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
@@ -2873,25 +2840,19 @@ export async function aprobarSnapshotService(
               select: {
                 escalafonId: true,
                 literalPuesto: true,
-                unificadorPuesto: true,
                 especialidadLegacy: true,
               },
             })) as {
               escalafonId: string
               literalPuesto: string | null
-              unificadorPuesto: string | null
               especialidadLegacy: string | null
             } | null
             if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
               const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
-              const unifNuevo =
-                (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
-              const espNuevo =
-                (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
               const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: escDestino.id,
                 literalPuesto: litNuevo,
-                unificadorPuesto: unifNuevo,
               })
               // Bug A: preferir el id del Dotaneitor si cuelga del puesto DESTINO;
               // si no valida, cae al fallback por texto (resolución actual).
@@ -2906,8 +2867,7 @@ export async function aprobarSnapshotService(
               )
               const prefijoNuevo = prefijoDeCargo({
                 escalafon: escDestino.nombre,
-                unificadorPuesto: unifNuevo,
-                agrupador: null,
+                literalPuesto: litNuevo,
                 puestoCargo: puesto,
                 tieneEspecialidad: Boolean(espId),
               })
@@ -3001,13 +2961,11 @@ export async function aprobarSnapshotService(
               select: {
                 escalafonId: true,
                 puestoCargoId: true,
-                unificadorPuesto: true,
                 codigoRegistro: { select: { codigo: true } },
               },
             })) as {
               escalafonId: string
               puestoCargoId: string | null
-              unificadorPuesto: string | null
               codigoRegistro: { codigo: string } | null
             } | null
             if (cargoActualP) {
@@ -3030,14 +2988,10 @@ export async function aprobarSnapshotService(
                     : decisionRegU.revision.motivo
                 ).slice(0, 200)
               }
-              const unif =
-                ((updateCargo['unificadorPuesto'] as string | null) ??
-                  cargoActualP.unificadorPuesto) ||
-                null
+              const unif = ((updateCargo['unificadorPuesto'] as string | null) ?? null) || null
               const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: cargoActualP.escalafonId,
                 literalPuesto: litNuevo,
-                unificadorPuesto: unif,
               })
               // Solo si el puesto REALMENTE cambió (evita reasignar entre
               // duplicados homónimos y escribir de más).
@@ -3277,8 +3231,6 @@ export async function aprobarSnapshotService(
       hospitalSigla: ocupacion.cargo.hospital.sigla,
       literalPuesto: ocupacion.cargo.literalPuesto,
       especialidad: ocupacion.cargo.especialidadLegacy ?? null,
-      agrupador: ocupacion.cargo.agrupador,
-      unificadorPuesto: ocupacion.cargo.unificadorPuesto,
       // FASE 5: ocupaciones.estado_persona se eliminó (columna viva muerta). El
       // histórico conserva su columna estado_persona como dato inmutable que v2
       // ya no puebla → se escribe null en cada carga nueva.
@@ -4343,7 +4295,6 @@ export async function aprobarDiffNuevoService(
       const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
         escalafonId: escalafon.id,
         literalPuesto: datos.literal_puesto ?? null,
-        unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
       // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor si valida.
       const especialidadResuelta = await especialidadPuestoIdFinal(
@@ -4357,8 +4308,6 @@ export async function aprobarDiffNuevoService(
       )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
-        unificadorPuesto: datos.unificador_de_puestos ?? null,
-        agrupador: datos.agrupador ?? null,
         puestoCargo: puestoResuelto,
         tieneEspecialidad: Boolean(especialidadResuelta),
         codigoRegistro: datos.codigo_de_registro ?? null,
@@ -4377,12 +4326,9 @@ export async function aprobarDiffNuevoService(
           codigoRegistroId,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,
-          agrupador: datos.agrupador ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
           regimen: datos.regimen || null,
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
-          agrupamiento: datos.agrupamiento || null,
           createdById: usuarioId,
         },
       })) as CargoRow
@@ -4583,12 +4529,6 @@ export async function aprobarDiffNuevoService(
             hospitalSigla: ocupacionFinal.cargo.hospital.sigla,
             literalPuesto: ocupacionFinal.cargo.literalPuesto,
             especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
-            agrupador: ocupacionFinal.cargo.agrupador,
-            unificadorPuesto: ocupacionFinal.cargo.unificadorPuesto,
-            // FASE 5: ocupaciones.estado_persona se eliminó (columna viva
-            // muerta). El histórico conserva su columna como dato inmutable que
-            // v2 ya no puebla → null.
-            estadoPersona: null,
             situacionRevista: ocupacionFinal.situacionRevista,
           },
         })
@@ -4664,7 +4604,6 @@ export async function marcarTransferenciaService(
     {
       escalafonId: escalafon.id,
       literalPuesto: datos.literal_puesto ?? null,
-      unificadorPuesto: datos.unificador_de_puestos ?? null,
     },
   )
   // Bug A: transferencia — preferir el especialidad_puesto_id del Dotaneitor si valida.
@@ -4687,8 +4626,6 @@ export async function marcarTransferenciaService(
       especialidadPuestoId: especialidadResueltaTransferencia,
       literalPuesto: datos.literal_puesto ?? '',
       especialidad: datos.especialidad || null,
-      agrupador: datos.agrupador || null,
-      unificadorPuesto: datos.unificador_de_puestos || null,
       regimen: datos.regimen || null,
       cantidad: 1,
       esTransferencia: true,
@@ -4801,7 +4738,6 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
         escalafonId: escalafon.id,
         literalPuesto: datos.literal_puesto ?? null,
-        unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
       // Bug A: alta (rechazado sin código) — preferir el id del Dotaneitor si valida.
       const especialidadResuelta = await especialidadPuestoIdFinal(
@@ -4824,12 +4760,9 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
           codigoRegistroId,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,
-          agrupador: datos.agrupador ?? null,
-          unificadorPuesto: datos.unificador_de_puestos ?? null,
           regimen: datos.regimen || null,
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
-          agrupamiento: datos.agrupamiento || null,
         },
       })) as CargoRow
     }
@@ -4990,8 +4923,8 @@ export async function buscarConcursosParaDiffService(
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+  const cuilDiff = cuilDe(datos) ?? null
 
-  // Resolver hospital y escalafón del diff para pre-filtrar
   const hospital = datos.siglas
     ? await prisma.hospital.findUnique({ where: { sigla: datos.siglas }, select: { id: true } })
     : null
@@ -5009,7 +4942,6 @@ export async function buscarConcursosParaDiffService(
     escalafonId = esc?.id ?? null
   }
 
-  // Búsqueda libre por texto en literal_puesto, hospital sigla/nombre, código cargo
   let searchIds: string[] | undefined
   if (q) {
     const like = `%${q}%`
@@ -5040,6 +4972,8 @@ export async function buscarConcursosParaDiffService(
       resolucionDesignacion: true,
       eeConcurso: true,
       personaDesignadaId: true,
+      especialidadSolicitada: true,
+      designadoRefCuil: true,
       cargo: {
         select: {
           id: true,
@@ -5051,32 +4985,62 @@ export async function buscarConcursosParaDiffService(
       },
       hospital: { select: { sigla: true, nombre: true } },
       concurso: { select: { expediente: true } },
+      personaDesignada: { select: { cuil: true } },
+      inscriptoReservado: { select: { cuil: true } },
     },
     orderBy: { updatedAt: 'desc' },
-    take: 30,
+    take: 50,
   })
 
-  // Filtrar por escalafón si se pudo resolver (post-query para no complicar el where)
   const filtrados = escalafonId
     ? concursos.filter((c) => c.cargo.escalafonId === escalafonId)
     : concursos
 
-  return filtrados.map((c) => ({
-    id: c.id,
-    estado: c.estado,
-    estaCompleto: !!c.resolucionDesignacion,
-    yaDesignado: !!c.personaDesignadaId,
-    eeConcurso: c.eeConcurso,
-    expediente: c.concurso.expediente,
-    codigoCargo: c.cargo.codigo,
-    literalPuesto: c.cargo.literalPuesto,
-    especialidad: c.cargo.especialidadLegacy,
-    hospital: c.hospital.sigla,
-  }))
+  const normStr = (s: string | null | undefined) =>
+    (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
+  const puestoDiff = normStr(datos.literal_puesto)
+  const espDiff = normStr(datos.especialidad)
+
+  return filtrados.map((c) => {
+    const cuilDesignado =
+      soloDigitos(c.personaDesignada?.cuil) ||
+      soloDigitos(c.inscriptoReservado?.cuil) ||
+      soloDigitos(c.designadoRefCuil) ||
+      null
+    const cuilCoincide = !!(cuilDiff && cuilDesignado && cuilDiff === cuilDesignado)
+
+    const puestoConcurso = normStr(c.cargo.literalPuesto)
+    const matchPuesto =
+      !!puestoDiff &&
+      !!puestoConcurso &&
+      (puestoConcurso.includes(puestoDiff) || puestoDiff.includes(puestoConcurso))
+
+    const espConcurso = normStr(c.especialidadSolicitada ?? c.cargo.especialidadLegacy)
+    const matchEspecialidad =
+      !espConcurso ||
+      espConcurso === 'sinespecialidad' ||
+      (!!espDiff && (espConcurso.includes(espDiff) || espDiff.includes(espConcurso)))
+
+    const esSugerido = matchPuesto && matchEspecialidad
+
+    return {
+      id: c.id,
+      estado: c.estado,
+      estaCompleto: !!c.resolucionDesignacion,
+      yaDesignado: !!c.personaDesignadaId,
+      eeConcurso: c.eeConcurso,
+      expediente: c.concurso.expediente,
+      codigoCargo: c.cargo.codigo,
+      literalPuesto: c.cargo.literalPuesto,
+      especialidad: c.especialidadSolicitada ?? c.cargo.especialidadLegacy,
+      hospital: c.hospital.sigla,
+      cuilCoincide,
+      matchPuesto,
+      esSugerido,
+    }
+  })
 }
-
-// ─── S2-8: rechazar snapshot ──────────────────────────────────────────────────
-
 export async function rechazarSnapshotService(id: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')

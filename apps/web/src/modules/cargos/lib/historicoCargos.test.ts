@@ -70,7 +70,7 @@ describe('filasPorCargo', () => {
     expect(filas[0]!.carrera).toBe('87 — Enfermería')
     expect(filas[0]!.rutaConcurso).toBe('/concursos/cph/cc1/wizard')
     expect(filas[0]!.etiquetas).toHaveLength(1)
-    expect(filas[1]!.tipoConcurso).toBe('sin_concurso')
+    expect(filas[1]!.tipoConcurso).toBeNull()
     expect(filas[1]!.puesto).toBe('Enfermero Profesional')
     expect(filas[1]!.rutaConcurso).toBeNull()
   })

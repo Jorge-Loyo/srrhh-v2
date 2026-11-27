@@ -88,12 +88,10 @@ interface OrganigramaNodo {
 // decenas de cargos por árbol (los que matchean codigoRepa de esta jerarquía
 // puntual), no vale la pena un where anidado con 4 ramas de OR distintas.
 //
-// ── Identificación de jefatura por JCAT (reemplaza unificador_puesto) ────────
-// El pipeline v2 del Dotaneitor (Sprint 22) ELIMINÓ `unificador_puesto`, que es
-// lo que esta función usaba antes para decidir si un cargo es de conducción.
-// Ahora se usa el JCAT (`ocupaciones.codigo_jefaturas`), que es el identificador
-// real de la jefatura y el que el pipeline v2 sí conserva (lo mapea a
-// `cargo_jefatura` vía la tabla `jcat_cargo_jefatura`). Las familias:
+// ── Identificación de jefatura por JCAT ────────────────────────────────────
+// El pipeline v2 del Dotaneitor (Sprint 22) usa JCAT para identificar jefaturas.
+// El JCAT (`ocupaciones.codigo_jefaturas`) es el identificador real de la
+// jefatura, mapeado a `cargo_jefatura` vía `jcat_cargo_jefatura`. Familias:
 //   P = Carrera Profesional de la Salud (cod_reg 37)
 //   G = Régimen Gerencial sobre carrera profesional (cod_reg 37)
 //   Z = Jefaturas operativas: enfermería/administrativo/técnicos (cod_reg 83/85/87)
@@ -250,7 +248,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // === 1. Estructura del árbol ===
   // mode: 'insensitive' porque el dump MySQL legacy puede tener cualquier casing
   // en universo_totalizador (ej. 'Nivel Central' vs 'NIVEL CENTRAL').
-  const rows = await prisma.organigrama.findMany({
+  const rows = await prisma.dimOrganigrama.findMany({
     where: sigla
       ? { sigla }
       : {
@@ -293,7 +291,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         .map((r) => r.codigo_reparticion)
         .filter((c) => !yaIncluidos.has(c))
       if (codigosFaltantes.length > 0) {
-        const nodosFaltantes = await prisma.organigrama.findMany({
+        const nodosFaltantes = await prisma.dimOrganigrama.findMany({
           where: { codigoReparticion: { in: codigosFaltantes } },
         })
         for (const n of nodosFaltantes) rows.push(n)
@@ -340,7 +338,6 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       id: true,
       codigo: true,
       literalPuesto: true,
-      unificadorPuesto: true,
       especialidadLegacy: true,
       especialidadPuesto: { select: { nombre: true } },
       escalafon: { select: { nombre: true } },
@@ -369,9 +366,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         },
       },
     },
-    // Mismo orden que la app vieja (codigo_reparticion, codigo_registro, unificador_puesto)
-    // para que, si dos cargos matchean el mismo nodo, gane siempre el mismo.
-    orderBy: [{ codigoRepa: 'asc' }, { unificadorPuesto: 'asc' }],
+    // Orden: codigoRepa primero para que cargos de la misma repartición
+    // queden juntos; literalPuesto como desempate secundario.
+    orderBy: [{ codigoRepa: 'asc' }, { literalPuesto: 'asc' }],
   })
 
   // Ordenar por rango jerárquico de conducción: cuando una repartición tiene
@@ -592,7 +589,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   ]
   const padresFuera =
     codigosPadresFuera.length > 0
-      ? await prisma.organigrama.findMany({
+      ? await prisma.dimOrganigrama.findMany({
           where: { codigoReparticion: { in: codigosPadresFuera } },
         })
       : []
@@ -723,7 +720,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     )
     if (!raiz && padres.size === 1) {
       const anchorCod = [...padres][0]!
-      const anchor = await prisma.organigrama.findUnique({
+      const anchor = await prisma.dimOrganigrama.findUnique({
         where: { codigoReparticion: anchorCod },
       })
       if (anchor) {
@@ -989,7 +986,7 @@ function normalizarDescRep(v: string | null): string | null {
 function normalizarFilaExcel(
   norm: Record<string, unknown>,
   numeroFila: number,
-): Prisma.OrganigramaCreateManyInput {
+): Prisma.DimOrganigramaCreateManyInput {
   const lvlRaw = celda(norm, 'lvl')
   const tipo = celda(norm, 'tipo')
   const codigoReparticion = celda(norm, 'codigo_reparticion')
@@ -1077,7 +1074,7 @@ export async function reemplazarOrganigramaService(
     string,
     { regimenEmpleo: string | null; universoTotalizador: string | null }
   >()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
   })) {
     historial.set(r.codigoReparticion, {
@@ -1086,7 +1083,7 @@ export async function reemplazarOrganigramaService(
     })
   }
   const hospitalTipoPorSigla = new Map<string, string | null>()
-  for (const h of await prisma.hospital.findMany({ select: { sigla: true, tipo: true } })) {
+  for (const h of await prisma.dimEfectores.findMany({ select: { sigla: true, tipo: true } })) {
     hospitalTipoPorSigla.set(h.sigla, h.tipo)
   }
 
@@ -1098,18 +1095,18 @@ export async function reemplazarOrganigramaService(
   // dentro de un mismo TIPO (ej. "DIV CA") el régimen es consistente. Se usa
   // como fallback cuando sigla|universo no alcanza (ver loop de pendientes).
   const regimenSetPorSiglaUniversoTipo = new Map<string, Set<string>>()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { sigla: true, universoTotalizador: true, regimenEmpleo: true, tipo: true },
     where: { regimenEmpleo: { not: '' } },
   })) {
     const key = `${r.sigla}|${canonUniverso(r.universoTotalizador)}`
     if (!regimenSetPorSiglaUniverso.has(key)) regimenSetPorSiglaUniverso.set(key, new Set())
-    regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo)
+    regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo!)
 
     const keyTipo = `${r.sigla}|${canonUniverso(r.universoTotalizador)}|${normalizarHeader(r.tipo ?? '')}`
     if (!regimenSetPorSiglaUniversoTipo.has(keyTipo))
       regimenSetPorSiglaUniversoTipo.set(keyTipo, new Set())
-    regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo)
+    regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo!)
   }
   const regimenPorSiglaUniverso = new Map<string, string>()
   for (const [key, set] of regimenSetPorSiglaUniverso) {
@@ -1156,9 +1153,9 @@ export async function reemplazarOrganigramaService(
           pendientes.push({
             codigoReparticion: f.codigoReparticion,
             tipo: f.tipo,
-            descRep: f.descRep,
+            descRep: f.descRep ?? null,
             sigla: f.sigla,
-            universoSugerido: f.universoTotalizador,
+            universoSugerido: f.universoTotalizador ?? '',
           })
         }
       }
@@ -1220,15 +1217,15 @@ export async function reemplazarOrganigramaService(
   // grandes (4.000+ filas en lotes de 500 = ~9 roundtrips).
   await prisma.$transaction(
     async (tx) => {
-      await tx.organigrama.deleteMany()
+      await tx.dimOrganigrama.deleteMany()
       for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
-        await tx.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
+        await tx.dimOrganigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
       }
     },
     { timeout: 120_000 },
   )
 
-  await prisma.organigramaUpload.create({
+  await prisma.dimOrganigramaUpload.create({
     data: {
       filename: filename ?? 'desconocido',
       filas: filas.length,
@@ -1272,12 +1269,12 @@ export async function reemplazarOrganigramaService(
 export async function listSiglasOrganigramaService(): Promise<
   { sigla: string; nombre: string; esSeccion: boolean }[]
 > {
-  const siglas = await prisma.organigrama.findMany({
+  const siglas = await prisma.dimOrganigrama.findMany({
     distinct: ['sigla'],
     select: { sigla: true },
     orderBy: { sigla: 'asc' },
   })
-  const hospitales = await prisma.hospital.findMany({
+  const hospitales = await prisma.dimEfectores.findMany({
     select: { sigla: true, nombre: true },
   })
   const nombrePorSigla = new Map(hospitales.map((h) => [h.sigla, h.nombre]))
@@ -1299,7 +1296,7 @@ export async function listSiglasOrganigramaService(): Promise<
 }
 
 export async function listOrganigramaUploadsService() {
-  return prisma.organigramaUpload.findMany({
+  return prisma.dimOrganigramaUpload.findMany({
     orderBy: { createdAt: 'desc' },
     take: 50,
     select: {

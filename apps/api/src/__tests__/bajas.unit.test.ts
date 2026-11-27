@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 
 type EstadoBaja   = 'resolucion_a_la_firma' | 'pendiente' | 'confirmada' | 'anulada'
 type EstadoCargo  = 'vigente' | 'no_vigente' | 'validacion_vacante'
-type TipoConcurso = 'cph' | 'ceetps' | 'sin_concurso'
+type TipoConcurso = 'cph' | 'ceetps'
 
 interface BajaInput {
   estado?: EstadoBaja

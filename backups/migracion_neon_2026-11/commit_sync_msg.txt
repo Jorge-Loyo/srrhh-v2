@@ -1,0 +1,11 @@
+chore(db): sync local=neon + migraciones faltantes
+
+- Migración 20261117000001: ADD COLUMN tipo_gestion en concursos_ceetps
+- Migración 20261117000002: CREATE TABLE etiquetas_concurso_ceetps,
+  pou_cargas, pou_especialidad_mapeo (faltaban en local)
+- scripts/truncate_for_sync.sql: trunca todas las tablas para re-sync
+- scripts/drop_enum_types.sql: limpia tipos enum residuales
+- scripts/kill_connections.sql: termina conexiones activas
+
+Estado local post-sync: cargos=62072, ocupaciones=59479,
+bajas=2931, padron_historico=239815 (igual a Neon nueva)

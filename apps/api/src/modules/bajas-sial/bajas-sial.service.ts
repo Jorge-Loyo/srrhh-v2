@@ -196,8 +196,8 @@ async function procesarSnapshot(
   `, new Date(fechaArchivo))
 
   const diffs: {
-    id: string; snapshot_id: string; tipo: string; cargo: string; cuil: string
-    ayn: string; escalafon: string | null; lit_puesto: string | null
+    id: string; snapshot_id: string; tipo: string; cargo: string; cuil: string | null
+    ayn: string | null; escalafon: string | null; lit_puesto: string | null
     mot_baja: string | null; cargo_hasta: Date | null
     existe_en_personas: boolean; tiene_ocup_activa: boolean
     cod_registro: string | null; hospital: string | null
@@ -249,10 +249,10 @@ async function procesarSnapshot(
     }
   }
 
-  const cuils = [...new Set(diffs.map((d) => cuilPuro(d.cuil)).filter(Boolean))]
+  const cuils = [...new Set(diffs.map((d) => cuilPuro(d.cuil ?? '')).filter(Boolean))]
   const { enPersonas, conOcupActiva, datosCargo } = await triangular(cuils)
   for (const d of diffs) {
-    const c = cuilPuro(d.cuil)
+    const c = cuilPuro(d.cuil ?? '')
     d.existe_en_personas = enPersonas.has(c)
     d.tiene_ocup_activa  = conOcupActiva.has(c)
     if (d.tiene_ocup_activa) {
@@ -379,6 +379,21 @@ export async function aprobarBajasSialService(id: string, usuarioId: string) {
     `UPDATE baja_sial_snapshots SET estado = 'aprobado', aprobado_por = $1::uuid, aprobado_at = now() WHERE id = $2::uuid`,
     usuarioId, id
   )
+
+  // Si un cargo está en validacion_vacante y figura en esta baja SIAL,
+  // revertirlo a vigente: la baja SIAL es la señal real; el validacion_vacante
+  // fue declarado prematuramente. Queda como vigente vacante sin concurso
+  // (baja_sin_concurso en la próxima lectura del snapshot de incidencias).
+  await prisma.$executeRawUnsafe(`
+    UPDATE cargos
+    SET estado = 'vigente', sub_estado = 'vacante', estado_desde = now()
+    WHERE deleted_at IS NULL
+      AND estado = 'validacion_vacante'
+      AND id_sial IN (
+        SELECT r.cargo FROM baja_sial_registros r WHERE r.snapshot_id = $1::uuid
+      )
+  `, id)
+
   return { ok: true, snapshotId: id }
 }
 

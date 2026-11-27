@@ -17,7 +17,7 @@ export const createConcursoSchema = z
     fechaVacante: fecha,
     motivo: z.string().trim().max(200).optional(),
     expediente: z.string().trim().max(150).optional(),
-    tipoConcurso: z.nativeEnum(TipoConcurso),
+    tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
     motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
     especialidadSolicitada: z.string().trim().max(200).optional(),
     eeBaja: z.string().trim().max(150).optional(),

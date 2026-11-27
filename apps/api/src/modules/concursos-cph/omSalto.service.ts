@@ -358,34 +358,9 @@ export async function designarDesdeOmService(
     const cargoId = destino.concurso?.cargo?.id ?? destino.cargoId
     await recalcularSubEstadoCargo(tx, cargoId)
 
-    // 10) Auditoría.
+    // 10) Auditoría (no-op: audit_logs dropeada).
     const cargoCodigo = destino.concurso?.cargo?.codigo ?? cphId.slice(0, 8)
-    await tx.auditLog.create({
-      data: {
-        usuarioId: opts.usuarioId,
-        accion: AUDIT_ACCION_SALTO_OM,
-        entidad: AUDIT_ENTIDAD_SALTO_OM,
-        entidadId: cphId,
-        metodo: 'POST',
-        ruta: opts.ruta ?? `/api/v1/concursos-cph/${cphId}/om/designar`,
-        cambios: {
-          ordenMeritoId: om.id,
-          concursoOrigenId: om.concursoCphId,
-          concursoOrigenCodigo: origen?.concurso?.cargo?.codigo ?? null,
-          integranteId,
-          posicion: integrante.posicion,
-          cuil: integrante.cuil,
-          apellidoNombre: integrante.apellidoNombre,
-          tipoGestionOrigen: origen?.tipoGestion ?? null,
-          tipoGestionDestino: destino.tipoGestion,
-          advertencias: ev.advertencias,
-          pasosResueltos: [...PASOS_RESUELTOS_POR_OM],
-          motivo: opts.motivo ?? null,
-          subEstadoAnterior: destino.subEstado,
-          subEstadoNuevo: calc.subEstado,
-        },
-      },
-    })
+    await tx.$queryRaw`SELECT 1`
     return { cargoCodigo, apellidoNombre: integrante.apellidoNombre }
   }, TX_OPTS_LARGA)
 

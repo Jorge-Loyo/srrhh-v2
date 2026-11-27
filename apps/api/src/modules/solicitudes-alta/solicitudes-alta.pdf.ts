@@ -198,7 +198,7 @@ function construirPdfEstandar(
 // Si la fila POU no existe todavía (cargo nuevo sin fila previa), se muestra
 // anterior = 0 y se indica "(fila nueva)".
 
-type PouRowDb = Awaited<ReturnType<typeof prisma.pou.findMany>>[number]
+type PouRowDb = Awaited<ReturnType<typeof prisma.dimPouOcupacion.findMany>>[number]
 
 function normalizar(s: string | null | undefined): string {
   return (s ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim().replace(/\s+/g, ' ')
@@ -478,14 +478,14 @@ interface OrgNodoRaw {
 async function cargarNodosOrganigrama(sigla: string): Promise<OrgNodoRaw[]> {
   // Secciones fijas: traer por universo_totalizador
   if (sigla === 'nivel-central') {
-    return prisma.organigrama.findMany({
+    return prisma.dimOrganigrama.findMany({
       where: { OR: [{ universoTotalizador: { equals: 'Nivel Central', mode: 'insensitive' } }] },
       select: { codigoReparticion: true, descRep: true, tipo: true, lvl: true, padre: true },
       orderBy: [{ lvl: 'asc' }, { codigoReparticion: 'asc' }],
     })
   }
   if (sigla === 'atencion-primaria') {
-    return prisma.organigrama.findMany({
+    return prisma.dimOrganigrama.findMany({
       where: { OR: [
         { universoTotalizador: { equals: 'APS', mode: 'insensitive' } },
         { universoTotalizador: { equals: 'ATENCION PRIMARIA', mode: 'insensitive' } },
@@ -494,7 +494,7 @@ async function cargarNodosOrganigrama(sigla: string): Promise<OrgNodoRaw[]> {
       orderBy: [{ lvl: 'asc' }, { codigoReparticion: 'asc' }],
     })
   }
-  return prisma.organigrama.findMany({
+  return prisma.dimOrganigrama.findMany({
     where: { sigla: sigla.toUpperCase() },
     select: { codigoReparticion: true, descRep: true, tipo: true, lvl: true, padre: true },
     orderBy: [{ lvl: 'asc' }, { codigoReparticion: 'asc' }],
@@ -704,7 +704,7 @@ export async function generarPdfGrupoSolicitudesAltaService(
   const solicitudes = await getGrupoSolicitudesAltaService(expediente)
 
   const esPou = solicitudes.some((s) =>
-    (s.unificadorPuesto ?? '').toUpperCase().includes('POU'),
+    (s.literalPuesto ?? '').toUpperCase().includes('GUARDIA'),
   )
   const esEstructura = solicitudes.some((s) =>
     parsearNodoOrg(s.observaciones ?? null) !== null,
@@ -721,7 +721,7 @@ export async function generarPdfGrupoSolicitudesAltaService(
   }
 
   if (esPou) {
-    const pouRows = await prisma.pou.findMany({
+    const pouRows = await prisma.dimPouOcupacion.findMany({
       orderBy: [{ sigla: 'asc' }, { perfil: 'asc' }, { especialidad: 'asc' }],
     })
     const buffer = await construirPdfPou(expediente, solicitudes, pouRows)

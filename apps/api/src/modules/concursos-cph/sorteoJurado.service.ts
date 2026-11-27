@@ -106,12 +106,11 @@ function aniosDesde(fecha: Date | null, hoy: Date): number | null {
 }
 
 // Modalidad del cargo (guardia = POU, planta = POF), determinada por
-// `unificadorPuesto` — mismo criterio que apps/api/src/shared/codigoCargo.ts
-// (no hay todavía un catálogo con FK que lo resuelva de forma más robusta).
+// el literal del puesto — mismo criterio que codigoCargo.ts.
 type ModalidadCargo = 'pou' | 'pof'
 
-function modalidadDeCargo(unificadorPuesto: string | null): ModalidadCargo {
-  const u = norm(unificadorPuesto)
+function modalidadDeCargo(literalPuesto: string | null): ModalidadCargo {
+  const u = norm(literalPuesto)
   return u.includes('pou') || u.includes('guardia') ? 'pou' : 'pof'
 }
 
@@ -228,7 +227,6 @@ async function obtenerCandidatos(params: {
           hospitalId: true,
           literalPuesto: true,
           descripcionRepa: true,
-          unificadorPuesto: true,
           hospital: { select: { nombre: true, sigla: true } },
         },
       },
@@ -252,7 +250,7 @@ async function obtenerCandidatos(params: {
     // write-once/stale que se está deprecando — ver S21-5).
     const especialidadPersona = p.especialidadCph
     const conduccion = esConduccion(o.codigoJefaturas)
-    const esGuardiaCandidato = modalidadDeCargo(o.cargo.unificadorPuesto) === 'pou'
+    const esGuardiaCandidato = modalidadDeCargo(o.cargo.literalPuesto) === 'pou'
     const antiguedad = aniosDesde(p.antiguedadDesde, hoy)
     const cumpleAntiguedad = antiguedad != null && antiguedad >= params.antiguedadMinimaAnios
     const esMismoHospital = o.cargo.hospitalId === params.hospitalIdConcurso
@@ -485,7 +483,7 @@ export async function generarSorteoJuradoService(
   // POF/POU. Ejecución descentralizada: cascada según la modalidad del cargo.
   const modalidadConcurso: ModalidadCargo | null = usaReglaUnicaSistema
     ? null
-    : modalidadDeCargo(cargo.unificadorPuesto)
+    : modalidadDeCargo(cargo.literalPuesto)
   const reglasOrden = usaReglaUnicaSistema
     ? REGLAS_CENTRALIZADO
     : modalidadConcurso === 'pou'

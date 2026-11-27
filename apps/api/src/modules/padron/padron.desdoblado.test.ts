@@ -213,7 +213,6 @@ describe('baja 24/07 — contrato de valorAnterior', () => {
       estado: string
       literalPuesto: string | null
       especialidadLegacy: string | null
-      agrupador: string | null
       hospital: { sigla: string } | null
       escalafon: { nombre: string } | null
     }
@@ -221,7 +220,6 @@ describe('baja 24/07 — contrato de valorAnterior', () => {
     situacionRevista: string | null
   }) {
     // Réplica EXACTA del objeto que calcularDiff serializa para las bajas 24/07.
-    // FASE 5: 'estado' (ocupaciones.estado_persona) se eliminó del snapshot.
     return {
       id_sial: o.cargo.idSial,
       codigo_cargo: o.cargo.codigo,
@@ -230,7 +228,6 @@ describe('baja 24/07 — contrato de valorAnterior', () => {
       cuil_y_rol: o.cuil ?? null,
       literal_puesto: o.cargo.literalPuesto,
       especialidad: o.cargo.especialidadLegacy,
-      agrupador: o.cargo.agrupador,
       situacion_de_revista: o.situacionRevista ?? null,
       siglas: o.cargo.hospital?.sigla ?? null,
       escalafon: o.cargo.escalafon?.nombre ?? null,
@@ -245,7 +242,6 @@ describe('baja 24/07 — contrato de valorAnterior', () => {
         estado: 'validacion_vacante',
         literalPuesto: 'medico residente',
         especialidadLegacy: 'pediatria',
-        agrupador: null,
         hospital: { sigla: 'HGA' },
         escalafon: { nombre: 'Residencias' },
       },

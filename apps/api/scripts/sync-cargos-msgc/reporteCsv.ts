@@ -69,7 +69,12 @@ export function csvDeEntradas(categoria: Categoria, entradas: Entrada[]): string
   const lineas = [COLUMNAS_DETALLE.join(',')]
   entradas.forEach((e, i) => {
     const celdas = COLUMNAS_DETALLE.map((c) => String(e[c] ?? ''))
-    celdas.forEach((v, j) => validarCelda(v, `detalle_${categoria} fila ${i + 1} columna ${COLUMNAS_DETALLE[j]}`))
+    celdas.forEach((v, j) => {
+      const col = COLUMNAS_DETALLE[j]
+      // cargo_codigo_sistema es un codigo del sistema (puede tener formato HIS-*-legajo-rol): solo se valida 11 digitos.
+      if (col === 'cargo_codigo_sistema') { if (RE_11_DIGITOS.test(v)) throw new Error(`Celda rechazada (11 digitos consecutivos) en detalle_${categoria} fila ${i + 1} columna ${col}`) }
+      else validarCelda(v, `detalle_${categoria} fila ${i + 1} columna ${col}`)
+    })
     lineas.push(celdas.map(celdaCsv).join(','))
   })
   return lineas.join('\n') + '\n'
@@ -81,8 +86,9 @@ export function csvDeColgados(filas: ConcursoColgado[]): string {
     const celdas = COLUMNAS_COLGADOS.map((c) => String(e[c] ?? ''))
     celdas.forEach((v, j) => {
       const ctx = `concursos_colgados fila ${i + 1} columna ${COLUMNAS_COLGADOS[j]}`
-      // fila_excel lleva codigos del Excel (AS-00001), sin expedientes: validacion comun.
-      if (COLUMNAS_COLGADOS[j] === 'expediente_concurso') validarCeldaExpediente(v, ctx)
+      const col = COLUMNAS_COLGADOS[j]
+      if (col === 'expediente_concurso') validarCeldaExpediente(v, ctx)
+      else if (col === 'cargo_codigo_sistema') { if (RE_11_DIGITOS.test(v)) throw new Error(`Celda rechazada (11 digitos consecutivos) en ${ctx}`) }
       else validarCelda(v, ctx)
     })
     lineas.push(celdas.map(celdaCsv).join(','))
@@ -100,7 +106,9 @@ export function csvDeConflictos(filas: ConflictoExpediente[]): string {
     const celdas = COLUMNAS_CONFLICTOS.map((c) => String(e[c] ?? ''))
     celdas.forEach((v, j) => {
       const ctx = `conflictos_expediente fila ${i + 1} columna ${COLUMNAS_CONFLICTOS[j]}`
-      if (COLUMNAS_CONFLICTOS[j] === 'expediente_excel' || COLUMNAS_CONFLICTOS[j] === 'expediente_sistema') validarCeldaExpediente(v, ctx)
+      const col = COLUMNAS_CONFLICTOS[j]
+      if (col === 'expediente_excel' || col === 'expediente_sistema') validarCeldaExpediente(v, ctx)
+      else if (col === 'cargo_codigo_sistema') { if (RE_11_DIGITOS.test(v)) throw new Error(`Celda rechazada (11 digitos consecutivos) en ${ctx}`) }
       else validarCelda(v, ctx)
     })
     lineas.push(celdas.map(celdaCsv).join(','))

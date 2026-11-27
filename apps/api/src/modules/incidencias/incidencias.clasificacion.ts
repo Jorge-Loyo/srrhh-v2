@@ -35,10 +35,16 @@ export interface CargoFacts {
   altaPendiente: boolean
   enBajaSial: boolean
   ausenteUltimoPadron: boolean
+  tieneHistoricoOcupacion: boolean
   // NO hay subEstado: la clasificación no lo usa (design §3.2).
 }
 
 // Cascada: gana el primer grupo que aplica. Es total (el residual nunca es null).
+// Regla de negocio:
+//   - baja_sin_concurso: SOLO cargos vigentes que figuran en la baja SIAL y no
+//     tienen concurso activo. La señal de detección es la baja SIAL.
+//   - validacion_vacante sin concurso → sin_clasificar ("en validación").
+//   - vigente sin ocupante sin baja SIAL → sin_clasificar (vacante pura, no accionable acá).
 export function clasificarCargo(f: CargoFacts): GrupoCargo {
   if (f.estado === 'no_vigente') return 'no_vigente'
   if (f.estado !== 'vigente' && f.estado !== 'validacion_vacante') return 'sin_clasificar'
@@ -46,12 +52,9 @@ export function clasificarCargo(f: CargoFacts): GrupoCargo {
   if (f.concursoActivo) return 'en_concurso'
   if (f.pendienteAutorizacion) return 'pendiente_autorizacion'
   if (f.altaPendiente) return 'alta_pendiente'
-  if (
-    !f.tieneOcupanteVigente &&
-    (f.enBajaSial || f.ausenteUltimoPadron || f.estado === 'validacion_vacante')
-  ) {
-    return 'baja_sin_concurso'
-  }
+  // Solo entra en baja_sin_concurso si figura en la baja SIAL y es vigente
+  // (no validacion_vacante: ese estado ya fue declarado por el sistema).
+  if (f.enBajaSial && f.estado === 'vigente') return 'baja_sin_concurso'
   return 'sin_clasificar'
 }
 

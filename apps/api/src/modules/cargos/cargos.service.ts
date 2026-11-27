@@ -110,8 +110,6 @@ export async function listCargosService(query: CargosQuery) {
          OR unaccent(c.codigo) ILIKE unaccent(${like})
          OR unaccent(c.literal_puesto) ILIKE unaccent(${like})
          OR unaccent(coalesce(c.especialidad_legacy, '')) ILIKE unaccent(${like})
-         OR unaccent(coalesce(c.agrupador, '')) ILIKE unaccent(${like})
-         OR unaccent(coalesce(c.unificador_puesto, '')) ILIKE unaccent(${like})
          OR similarity(unaccent(lower(coalesce(c.especialidad_legacy, ''))), unaccent(${term})) > 0.4
          OR similarity(unaccent(lower(coalesce(c.literal_puesto, ''))), unaccent(${term})) > 0.4
     `)
@@ -634,8 +632,6 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
 
   const prefijo = prefijoDeCargo({
     escalafon: escalafon.nombre,
-    unificadorPuesto: body.unificadorPuesto ?? null,
-    agrupador: body.agrupador ?? null,
     puestoCargo,
     tieneEspecialidad: Boolean(body.especialidadPuestoId),
     codigoRegistro: codigoRegistroCodigo,
@@ -658,8 +654,6 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           // Snapshot de auditoría — nombre canónico del catálogo al momento del alta.
           literalPuesto: puestoCargo.nombre,
           especialidadLegacy: especialidadPuesto?.nombre ?? null,
-          agrupador: body.agrupador ?? null,
-          unificadorPuesto: body.unificadorPuesto ?? null,
           regimen: body.regimen ?? null,
           expediente: body.expediente ?? null,
           fechaDesde: body.desde ? new Date(body.desde) : null,

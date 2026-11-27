@@ -93,7 +93,7 @@ export const dotacionQuerySchema = z.object({
   // sin puesto, etc.). Puesto/especialidad filtran por NOMBRE (normalizado, vía
   // join a puestos_cargo/especialidades_puesto) para poder buscar sobre todo el
   // catálogo sin fijar el nivel superior. Reemplazan los viejos multi-select
-  // de texto snapshot (unificadorPuesto/agrupador/literalPuesto/especialidad).
+  // de texto snapshot (literalPuesto/especialidad).
   escalafonId: csv(),
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   // Jefe/No jefe — ver condicionesDimensiones en el servicio. Dimensión

@@ -16,6 +16,7 @@ import {
   type DotacionFilters, type DotacionListResponse, type DotacionRow, type GrupoDotacion,
   type DotacionGroupByKey,
 } from '../hooks/useDotacion'
+import { useDimDotacion, useDimDotacionKpis, useDimActividadDetalle, useDimEfectores, useDimCarreras, useDimPuestos, type DimDotacionFilters, type DimDotacionRow } from '../hooks/useDimDotacion'
 
 // La ficha "Sin dato" del panel de Fichas representa un NULL (ver
 // DOTACION_SIN_DATO) — se traduce a ida y vuelta entre lo que se MUESTRA
@@ -65,6 +66,341 @@ const DIMENSIONES_UNION = [
 ] as const
 
 const LIMIT = 50
+const DIM_LIMIT = 50
+
+// ─── Panel MSGC (dim_actividad_hechos) ───────────────────────────────────────
+
+const DIM_COLUMNS: { key: keyof DimDotacionRow; label: string; sortKey?: string; cap?: boolean }[] = [
+  { key: 'idSialRol',        label: 'Cód. SIAL',           sortKey: 'cuil' },
+  { key: 'cuil',             label: 'CUIL',                sortKey: 'cuil' },
+  { key: 'apellidoNombre',   label: 'Apellido y Nombre',   sortKey: 'apellidoNombre', cap: true },
+  { key: 'efector',          label: 'Efector',             sortKey: 'efector' },
+  { key: 'litCodReg',        label: 'Carrera',             sortKey: 'carrera', cap: true },
+  { key: 'codigoRegistro',   label: 'Cód. Registro' },
+  { key: 'literalPuesto',    label: 'Puesto',              sortKey: 'literalPuesto', cap: true },
+  { key: 'especialidad',     label: 'Especialidad',        cap: true },
+  { key: 'situacionRevista', label: 'Situación de Revista', sortKey: 'situacionRevista' },
+  { key: 'descRep',          label: 'Repartición (SIAL)',  cap: true },
+  { key: 'fechaDesde',       label: 'Desde' },
+]
+
+function PanelMsgc() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const prefix = 'dim_'
+
+  function getP(key: string) { return searchParams.get(prefix + key) ?? '' }
+  function getCsvP(key: string) {
+    const v = getP(key)
+    return v ? v.split(',').filter(Boolean) : []
+  }
+  function setP(key: string, value: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (value) next.set(prefix + key, value); else next.delete(prefix + key)
+      next.delete(prefix + 'page')
+      return next
+    })
+  }
+
+  const page = Number(getP('page') || '1')
+  const sortBy = getP('sortBy') || undefined
+  const sortDir = (getP('sortDir') as 'asc' | 'desc' | null) || 'asc'
+  const efector = getCsvP('efector')
+  const codigoRegistro = getCsvP('codigoRegistro')
+  const situacionRevista = getCsvP('situacionRevista')
+  const literalPuesto = getCsvP('literalPuesto')
+  const especialidad = getCsvP('especialidad')
+  const apellidoNombreRaw = getP('apellidoNombre')
+  const cuilRaw = getP('cuil')
+  const idSialRolRaw = getP('idSialRol')
+  const apellidoNombre = useDebounce(apellidoNombreRaw, 300)
+  const cuil = useDebounce(cuilRaw, 300)
+  const idSialRol = useDebounce(idSialRolRaw, 300)
+
+  const [detalleRol, setDetalleRol] = useState<string | null>(null)
+
+  const filters: DimDotacionFilters = {
+    page, limit: DIM_LIMIT,
+    ...(sortBy && { sortBy }),
+    sortDir,
+    ...(efector.length && { efector }),
+    ...(codigoRegistro.length && { codigoRegistro }),
+    ...(situacionRevista.length && { situacionRevista }),
+    ...(literalPuesto.length && { literalPuesto }),
+    ...(especialidad.length && { especialidad }),
+    ...(idSialRol && { idSialRol }),
+    ...(cuil && { cuil }),
+    ...(apellidoNombre && { apellidoNombre }),
+  }
+
+  const { data, isLoading, isFetching, isError } = useDimDotacion(filters)
+  const { data: kpis } = useDimDotacionKpis()
+  const { data: detalle, isLoading: loadingDetalle } = useDimActividadDetalle(detalleRol)
+  const { data: efectoresCat } = useDimEfectores()
+  const { data: carrerasCat } = useDimCarreras()
+  // Puestos acotados al primer efector/carrera seleccionados (o todos si no hay filtro)
+  const { data: puestosCat } = useDimPuestos(efector[0], codigoRegistro[0])
+
+  function setPage(p: number) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (p === 1) next.delete(prefix + 'page'); else next.set(prefix + 'page', String(p))
+      return next
+    }, { replace: true })
+  }
+
+  function handleSort(sortKey?: string) {
+    if (!sortKey) return
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      const cur = prev.get(prefix + 'sortBy')
+      const curDir = prev.get(prefix + 'sortDir') ?? 'asc'
+      next.set(prefix + 'sortBy', sortKey)
+      next.set(prefix + 'sortDir', cur === sortKey && curDir === 'asc' ? 'desc' : 'asc')
+      next.delete(prefix + 'page')
+      return next
+    })
+  }
+
+  function renderDimCell(row: DimDotacionRow, col: (typeof DIM_COLUMNS)[number]) {
+    const raw = row[col.key]
+    if (raw === null || raw === undefined || raw === '') return '—'
+    if (col.key === 'fechaDesde') return String(raw).slice(0, 10)
+    return col.cap ? capitalizar(String(raw)) : raw
+  }
+
+  const hasFilters = efector.length || codigoRegistro.length || situacionRevista.length ||
+    literalPuesto.length || especialidad.length ||
+    apellidoNombreRaw || cuilRaw || idSialRolRaw
+
+  // Opciones de filtro desde catálogos completos (dim_efectores / dim_carreras)
+  const efectorOpts = (efectoresCat ?? []).map((e) => e.sigla)
+  const efectorLabel = (sigla: string) => {
+    const e = efectoresCat?.find((x) => x.sigla === sigla)
+    return e?.nombre ? `${sigla} — ${e.nombre}` : sigla
+  }
+  const carreraOpts = (carrerasCat ?? []).map((c) => c.codigoRegistro)
+  const carreraLabel = (cr: string) => {
+    const c = carrerasCat?.find((x) => x.codigoRegistro === cr)
+    return c?.litCodReg ? `${cr} — ${c.litCodReg}` : cr
+  }
+  const sitRevOpts = ['activo', 'retencion de cargo', 'comisionado']
+  const puestoOpts = [...new Set((puestosCat ?? []).map((p) => p.literalPuesto).filter(Boolean))] as string[]
+  const especialidadOpts = [...new Set((puestosCat ?? []).map((p) => p.especialidad).filter(Boolean))] as string[]
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* KPI cards */}
+      {kpis && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+            <p className="text-xs text-gray-500">Activos totales</p>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpis.totalActivos.toLocaleString('es-AR')}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+            <p className="text-xs text-gray-500">Personas únicas</p>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpis.personasUnicas.toLocaleString('es-AR')}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+            <p className="text-xs text-gray-500">Efectores</p>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpis.porEfector.length}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+            <p className="text-xs text-gray-500">Carreras</p>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpis.porCarrera.length}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-3 items-end">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Efector</label>
+          <MultiSelectDropdown
+            label="Efectores"
+            value={efector}
+            options={efectorOpts}
+            onChange={(v) => setP('efector', v.join(','))}
+            formatOption={efectorLabel}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Carrera (cód. registro)</label>
+          <MultiSelectDropdown
+            label="Carreras"
+            value={codigoRegistro}
+            options={carreraOpts}
+            onChange={(v) => setP('codigoRegistro', v.join(','))}
+            formatOption={carreraLabel}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Situación de Revista</label>
+          <MultiSelectDropdown
+            label="Situación"
+            value={situacionRevista}
+            options={sitRevOpts}
+            onChange={(v) => setP('situacionRevista', v.join(','))}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Puesto</label>
+          <MultiSelectDropdown
+            label="Puestos"
+            value={literalPuesto}
+            options={puestoOpts}
+            onChange={(v) => setP('literalPuesto', v.join(','))}
+            formatOption={capitalizar}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Especialidad</label>
+          <MultiSelectDropdown
+            label="Especialidades"
+            value={especialidad}
+            options={especialidadOpts}
+            onChange={(v) => setP('especialidad', v.join(','))}
+            formatOption={capitalizar}
+          />
+        </div>
+        <input
+          type="text" placeholder="Apellido y Nombre"
+          value={apellidoNombreRaw}
+          onChange={(e) => setP('apellidoNombre', e.target.value)}
+          className="h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+        />
+        <input
+          type="text" placeholder="CUIL"
+          value={cuilRaw}
+          onChange={(e) => setP('cuil', e.target.value)}
+          className="h-10 px-3 border border-gray-300 rounded text-sm w-36 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+        />
+        <input
+          type="text" placeholder="Cód. SIAL"
+          value={idSialRolRaw}
+          onChange={(e) => setP('idSialRol', e.target.value)}
+          className="h-10 px-3 border border-gray-300 rounded text-sm w-36 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+        />
+        {hasFilters && (
+          <button
+            onClick={() => {
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                ;['efector','codigoRegistro','situacionRevista','literalPuesto','especialidad','apellidoNombre','cuil','idSialRol','page','sortBy','sortDir']
+                  .forEach((k) => next.delete(prefix + k))
+                return next
+              })
+            }}
+            className="h-10 px-3 text-xs text-danger border border-danger rounded hover:bg-danger/5"
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white rounded-lg border border-gray-200 flex-1 flex flex-col overflow-hidden min-h-0">
+        {isLoading && <p className="p-6 text-sm text-gray-400">Cargando...</p>}
+        {isError && <p className="p-6 text-sm text-danger">No se pudo cargar el listado MSGC.</p>}
+        {!isLoading && !isError && data && (
+          <>
+            <div className="flex-1 overflow-auto min-h-0">
+              {data.rows.length === 0 ? (
+                <p className="p-6 text-sm text-gray-400 text-center">Sin registros para los filtros seleccionados.</p>
+              ) : (
+                <table className={`w-full text-sm border-separate border-spacing-0 ${isFetching ? 'opacity-60' : ''}`}>
+                  <thead className="bg-navy text-white text-left sticky top-0 z-10">
+                    <tr>
+                      {DIM_COLUMNS.map((col) => (
+                        <th
+                          key={col.key}
+                          onClick={() => handleSort(col.sortKey)}
+                          className={`px-3 py-2.5 font-semibold whitespace-nowrap select-none ${col.sortKey ? 'cursor-pointer hover:bg-navy/80' : ''}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            {col.label}
+                            {col.sortKey && sortBy === col.sortKey && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-3 py-2.5 font-semibold">Historial</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.rows.map((row) => (
+                      <tr key={row.id} className="hover:bg-gray-50">
+                        {DIM_COLUMNS.map((col) => (
+                          <td key={col.key} className="px-3 py-1.5 whitespace-nowrap text-gray-800">
+                            {renderDimCell(row, col)}
+                          </td>
+                        ))}
+                        <td className="px-3 py-1.5">
+                          <button
+                            onClick={() => setDetalleRol(detalleRol === row.idSialRol ? null : row.idSialRol)}
+                            className="text-xs text-secondary hover:underline"
+                          >
+                            {detalleRol === row.idSialRol ? 'Cerrar' : 'Ver'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm text-gray-500">
+              <span>
+                Mostrando {data.rows.length} de {data.total.toLocaleString('es-AR')} — página {data.page} de {data.pages || 1}
+              </span>
+              <div className="flex gap-2">
+                <button className="btn-outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button>
+                <button className="btn-outline" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>Siguiente</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Panel de historial de actividad */}
+      {detalleRol && (
+        <div className="bg-white rounded-lg border border-secondary/30 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700">Historial de actividad — {detalleRol}</h3>
+            <button onClick={() => setDetalleRol(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">×</button>
+          </div>
+          {loadingDetalle && <p className="text-sm text-gray-400">Cargando historial...</p>}
+          {detalle && detalle.length === 0 && <p className="text-sm text-gray-400">Sin historial.</p>}
+          {detalle && detalle.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead className="bg-gray-100 text-gray-600">
+                  <tr>
+                    {['Desde','Hasta','Situación','Efector','Puesto','Especialidad','Cód. Cargo'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {detalle.map((d) => (
+                    <tr key={d.id} className={d.esActual ? 'bg-green-50' : ''}>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{d.fechaDesde?.slice(0, 10) ?? '—'}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{d.fechaHasta?.slice(0, 10) ?? <span className="text-green-600 font-medium">activo</span>}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{d.situacionRevista ?? '—'}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{d.efector ?? '—'}</td>
+                      <td className="px-3 py-1.5">{d.literalPuesto ? capitalizar(d.literalPuesto) : '—'}</td>
+                      <td className="px-3 py-1.5">{d.especialidad ? capitalizar(d.especialidad) : '—'}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{d.codigoCargo ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // S21: /dotacion combina persona + cargo. Los filtros NO son cascada forzada:
 // se combinan libremente. Puesto/especialidad se buscan por NOMBRE sobre todo
@@ -134,6 +470,7 @@ export function DotacionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [kpisOpen, setKpisOpen] = useState(false)
+  const [modulo, setModulo] = useState<'legacy' | 'msgc'>('legacy')
   // "Fichas" es una solapa propia, no un panel que reacciona al toque: se
   // junta todo en un borrador local y el Listado no se refresca hasta tocar
   // "Aplicar filtros".
@@ -571,25 +908,52 @@ export function DotacionPage() {
           todo, mismo patrón que el resto de las pantallas con solapas
           (ver ConcursosCphPage). */}
       <div className="flex gap-1 border-b border-gray-200">
+        {/* Módulo selector */}
         <button
-          onClick={cancelarFichas}
+          onClick={() => setModulo('legacy')}
           className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
-            vista === 'listado' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
+            modulo === 'legacy' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Listado
+          Sistema
         </button>
         <button
-          onClick={abrirFichas}
-          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
-            vista === 'fichas' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
+          onClick={() => setModulo('msgc')}
+          className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+            modulo === 'msgc' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          <Squares2X2Icon className="w-4 h-4" />
-          Fichas
+          MSGC
+          <span className="ml-1.5 text-[10px] bg-secondary/20 text-secondary px-1.5 py-0.5 rounded-full font-bold">NUEVO</span>
         </button>
+        {modulo === 'legacy' && (
+          <>
+            <div className="w-px h-6 self-center bg-gray-200 mx-1" />
+            <button
+              onClick={cancelarFichas}
+              className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+                vista === 'listado' ? 'border-navy text-navy' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Listado
+            </button>
+            <button
+              onClick={abrirFichas}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+                vista === 'fichas' ? 'border-navy text-navy' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Squares2X2Icon className="w-4 h-4" />
+              Fichas
+            </button>
+          </>
+        )}
       </div>
 
+      {/* Panel MSGC — completamente independiente del flujo legacy */}
+      {modulo === 'msgc' && <PanelMsgc />}
+
+      {modulo === 'legacy' && (<>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-primary text-xl font-bold text-gray-900">Dotación</h1>
@@ -1158,6 +1522,7 @@ export function DotacionPage() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   )
 }

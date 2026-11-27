@@ -144,8 +144,8 @@ const { aprobarAutorizacionService } = await import('../modules/autorizaciones/a
 function solicitud(opts: { cr: string | null; cantidad: number; literal?: string; expediente?: string | null; sinCrId?: boolean }) {
   return {
     id: 'sol1', hospitalId: 'h1', escalafonId: 'esc1', codigoRegistroId: opts.sinCrId ? null : 'cr1', puestoCargoId: null,
-    especialidadPuestoId: null, literalPuesto: opts.literal ?? 'MEDICO', especialidad: null, agrupador: null,
-    unificadorPuesto: null, regimen: null, expediente: opts.expediente === undefined ? 'EX-1' : opts.expediente,
+    especialidadPuestoId: null, literalPuesto: opts.literal ?? 'MEDICO', especialidad: null,
+    regimen: null, expediente: opts.expediente === undefined ? 'EX-1' : opts.expediente,
     desde: null, cantidad: opts.cantidad,
     hospital: { sigla: 'HGAT' }, escalafon: { nombre: 'CPH' }, codigoRegistro: opts.cr ? { codigo: opts.cr } : null, puestoCargo: null,
     // La aprobación propaga las etiquetas de la solicitud a los cargos creados.

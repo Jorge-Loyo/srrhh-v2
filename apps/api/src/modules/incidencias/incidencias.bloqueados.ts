@@ -9,7 +9,7 @@
 // únicas ocupaciones vivas que hoy tienen fecha_bloqueo cargada. Es ESPERADO:
 // NO hay backfill. Con el próximo padrón la lista se completa.
 import { prisma } from '../../shared/prisma.js'
-import { sqlCargoGestionable } from './incidencias.baja-sin-concurso.js'
+import { sqlCargoGestionable } from './incidencias.gestionable.js'
 import { normalizarBusqueda, coincideBusqueda, coincideCarrera } from './incidencias.clasificacion.js'
 
 // ─── Tipo del contrato ───────────────────────────────────────────────────────

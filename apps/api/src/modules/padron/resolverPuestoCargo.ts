@@ -1,7 +1,7 @@
 import { esConduccionPorLiteral } from '../../shared/codigoCargo.js'
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { derivarEspecialidadDesdePuesto } from './derivarEspecialidadPuesto.js'
-import type { ModalidadPuesto, TipoPuesto } from '@prisma/client'
+import type { ModalidadPuesto, TipoPuesto, PrismaClient } from '@prisma/client'
 
 // S20-6: el catálogo PuestoCargo/EspecialidadPuesto pasa a ser la fuente real
 // de verdad de puesto/especialidad en Cargo (FK obligatoria). El import del
@@ -14,28 +14,11 @@ import type { ModalidadPuesto, TipoPuesto } from '@prisma/client'
 // alguien lo revise/fusione después. Esto no bloquea el import semanal
 // desatendido — decisión tomada en la planificación de S20-6.
 
-type TxCatalogo = {
-  puestoCargo: {
-    findMany: (
-      args: unknown,
-    ) => Promise<
-      {
-        id: string
-        escalafonId: string
-        nombre: string
-        modalidad: ModalidadPuesto
-        tipoPuesto: TipoPuesto
-      }[]
-    >
-    create: (
-      args: unknown,
-    ) => Promise<{ id: string; nombre: string; modalidad: ModalidadPuesto; tipoPuesto: TipoPuesto }>
-  }
-  especialidadPuesto: {
-    findMany: (args: unknown) => Promise<{ id: string; puestoCargId: string; nombre: string }[]>
-    create: (args: unknown) => Promise<{ id: string }>
-  }
-}
+// TxCatalogo: acepta tanto PrismaClient como el cliente de transacción (Omit<PrismaClient, ...>).
+// Se define como el subconjunto mínimo que usan cargarCatalogoPuestos/resolverPuestoCargoId/
+// resolverEspecialidadPuestoId, pero tipado con las firmas reales de Prisma para
+// que sea compatible con PrismaTx y PrismaClient bajo strict:true.
+export type TxCatalogo = Pick<PrismaClient, 'puestoCargo' | 'especialidadPuesto'>
 
 // S21: la clave de matcheo con el catálogo curado usa la MISMA normalización
 // que el seed (minúscula + sin tilde, mantiene ñ — @srrhh/normalizacion). Antes
@@ -169,7 +152,7 @@ function canonicalizarLiteralPuesto(literalNorm: string, modalidad: ModalidadPue
 export async function resolverPuestoCargoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
-  params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null },
+  params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto?: string | null },
 ): Promise<PuestoCargoInfo> {
   const literalRaw = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
 

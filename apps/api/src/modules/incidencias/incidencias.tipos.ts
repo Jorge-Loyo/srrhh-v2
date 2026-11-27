@@ -6,13 +6,9 @@
 import { prisma } from '../../shared/prisma.js'
 import { normalizarBusqueda, coincideBusqueda, coincideCarrera } from './incidencias.clasificacion.js'
 import { esCargoGestionable } from './incidencias.gestionable.js'
+import { logger } from '../../shared/logger.js'
 import {
   obtenerSnapshotIncidencias,
-  itemsBajaSinConcurso,
-  filtrarPorQueryYCarrera,
-  camposBusquedaBaja,
-  calcularConciliacion,
-  type ConciliacionGrupos,
   type ContextoIncidencias,
 } from './incidencias.baja-sin-concurso.js'
 import {
@@ -108,10 +104,12 @@ const sialSinCargo: TipoIncidencia = {
       where: WHERE_SIAL_SIN_CARGO,
       select: { valorNuevo: true },
     })
-    return diffs.reduce(
+    const total = diffs.reduce(
       (n, d) => n + (esDiffSialGestionable(JSON.parse(d.valorNuevo ?? '{}')) ? 1 : 0),
       0,
     )
+    logger.debug({ diffsRaw: diffs.length, gestionables: total }, 'sialSinCargo.contar')
+    return total
   },
   async listar(f) {
     // Lectura liviana: sin diagnóstico de concurso (Todo no lo muestra).
@@ -172,28 +170,36 @@ const bajaSinConcurso: TipoIncidencia = {
   label: 'Baja sin concurso',
   async contar(opts) {
     const snap = await obtenerSnapshotIncidencias(opts)
-    return itemsBajaSinConcurso(snap).length
+    return snap.items.length
   },
   async listar(f, opts) {
     const snap = await obtenerSnapshotIncidencias(opts)
-    const items = filtrarPorQueryYCarrera(itemsBajaSinConcurso(snap), f, camposBusquedaBaja)
-    return items.map((i) => ({
-      clave: `baja-sin-concurso:${i.cargoId}`,
-      tipo: 'baja-sin-concurso' as const,
-      tipoLabel: 'Baja sin concurso',
-      idSial: i.idSial,
-      codigo: i.codigo,
-      hospitalSigla: i.hospitalSigla,
-      carrera: i.carrera,
-      puesto: i.puesto,
-      especialidad: i.especialidad,
-      personaCuil: i.persona?.cuil ?? null,
-      personaNombre: i.persona?.nombre ?? null,
-      fecha: i.deteccion.fechaBaja ?? i.deteccion.fechaDeteccion,
-      detalle: i.deteccion.texto,
-      cargoId: i.cargoId,
-      diffId: null,
-    }))
+    const qNorm = normalizarBusqueda(f.q)
+    return snap.items
+      .filter((i) => {
+        if (f.carrera && (i.codigoRegistro ?? '').trim() !== f.carrera) return false
+        return coincideBusqueda(
+          { nombre: i.persona?.nombre, cuil: i.persona?.cuil, idSial: i.idSial, codigo: i.codigo },
+          qNorm,
+        )
+      })
+      .map((i) => ({
+        clave: `baja-sin-concurso:${i.cargoId}`,
+        tipo: 'baja-sin-concurso' as const,
+        tipoLabel: 'Baja sin concurso',
+        idSial: i.idSial,
+        codigo: i.codigo,
+        hospitalSigla: i.hospitalSigla,
+        carrera: i.carrera,
+        puesto: i.puesto,
+        especialidad: i.especialidad,
+        personaCuil: i.persona?.cuil ?? null,
+        personaNombre: i.persona?.nombre ?? null,
+        fecha: i.bajaSial.cargoHasta,
+        detalle: i.bajaSial.motBaja ?? 'Figura en baja SIAL',
+        cargoId: i.cargoId,
+        diffId: null,
+      }))
   },
 }
 
@@ -370,7 +376,6 @@ export async function listarTodo(
 
 export interface ResumenIncidencias {
   tabs: Record<TipoSlug | 'todo', number>
-  conciliacion: ConciliacionGrupos
   contexto: ContextoIncidencias
   generadoAt: string
 }
@@ -379,12 +384,13 @@ export async function resumenIncidencias(
   opts: OpcionesLectura = {},
   tipos: TipoIncidencia[] = TIPOS_INCIDENCIA,
 ): Promise<ResumenIncidencias> {
-  const conteos = await Promise.all(tipos.map((t) => t.contar(opts)))
+  const [conteos, snap] = await Promise.all([
+    Promise.all(tipos.map((t) => t.contar(opts))),
+    obtenerSnapshotIncidencias(opts),
+  ])
   const tabs = Object.fromEntries(tipos.map((t, i) => [t.slug, conteos[i]])) as Record<TipoSlug, number>
-  const snap = await obtenerSnapshotIncidencias(opts)
   return {
     tabs: { todo: conteos.reduce((a, b) => a + b, 0), ...tabs },
-    conciliacion: calcularConciliacion(snap),
     contexto: snap.contexto,
     generadoAt: snap.generadoAt.toISOString(),
   }

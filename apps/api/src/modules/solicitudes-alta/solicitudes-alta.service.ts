@@ -81,8 +81,6 @@ export async function createSolicitudAltaService(
         // Snapshot de auditoría — nombre canónico del catálogo al momento de la solicitud.
         literalPuesto:    puestoCargo.nombre,
         especialidad:     especialidadPuesto?.nombre ?? null,
-        agrupador:        body.agrupador ?? null,
-        unificadorPuesto: body.unificadorPuesto ?? null,
         regimen:          body.regimen ?? null,
         expediente:       body.expediente ?? null,
         desde:            body.desde ? new Date(body.desde) : null,
@@ -240,8 +238,6 @@ export async function createSolicitudesAltaBatchService(
           especialidadPuestoId: item.especialidadPuestoId ?? null,
           literalPuesto,
           especialidad:     especialidadNombre,
-          agrupador:        item.agrupador ?? null,
-          unificadorPuesto: item.unificadorPuesto ?? null,
           regimen:          item.regimen ?? null,
           expediente:       item.expediente ?? null,
           desde:            item.desde ? new Date(item.desde) : null,
@@ -327,7 +323,7 @@ export interface CargoCreadoResumen {
   puesto: string | null
   especialidad: string | null
   codigoRegistro: string | null
-  concurso: { tipo: 'cph' | 'ceetps' | 'sin_concurso'; detalleId: string | null } | null
+  concurso: { tipo: 'cph' | 'ceetps'; detalleId: string | null } | null
 }
 
 export async function adjuntarCargosCreados<T extends { cargosCreadosIds: string[] }>(
@@ -352,7 +348,7 @@ export async function adjuntarCargosCreados<T extends { cargosCreadosIds: string
       especialidad:   c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? null,
       codigoRegistro: c.codigoRegistro?.codigo ?? null,
       concurso: co
-        ? { tipo: co.tipoConcurso, detalleId: co.concursoCph?.id ?? co.concursoCeetps?.id ?? null }
+        ? { tipo: co.tipoConcurso!, detalleId: co.concursoCph?.id ?? co.concursoCeetps?.id ?? null }
         : null,
     })
   }

@@ -1,0 +1,15 @@
+# Override DESARROLLO — apunta a Neon_BD (branch de reestructuración).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.neonbd.yml up
+# NO commitear (está en .gitignore junto con override.yml).
+services:
+  api:
+    environment:
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5180
+      CHOKIDAR_USEPOLLING: 'true'
+      DATABASE_URL: postgresql://neondb_owner:npg_Sse7auT1knHB@ep-rough-pond-aeuzuxh9-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require
+      LOG_LEVEL: debug
+    volumes:
+      - ./apps/api/src:/repo/apps/api/src
+      - ./packages/types/src:/repo/packages/types/src
+      - ./packages/utils/src:/repo/packages/utils/src
+      - ./prisma:/repo/prisma

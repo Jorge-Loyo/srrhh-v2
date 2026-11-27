@@ -5,7 +5,7 @@ import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
-import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
+import type { Baja, Cargo, CargoDetail, PaginatedResponse } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS, origenToMotivoConcurso,
@@ -462,7 +462,8 @@ export function NuevaBajaPage() {
 
   // ── paso 2 ──
   const [generaConcurso, setGeneraConcurso] = useState<boolean | null>(null)
-  const [tipoConcursoSeleccionado, setTipoConcursoSeleccionado] = useState<TipoConcurso>('cph' as TipoConcurso)
+  // Cuando no genera concurso: destino del cargo
+  const [destinoCargo, setDestinoCargo] = useState<'vigente_vacante' | 'no_vigente'>('no_vigente')
 
   // ── UI ──
   const [guardando, setGuardando] = useState(false)
@@ -640,12 +641,11 @@ export function NuevaBajaPage() {
       especialidad: especialidad || undefined,
       generaConcurso: conConcurso,
       ...(conConcurso && {
-        tipoConcurso: tipoConcursoSeleccionado,
-        // La API lo exige para tipoConcurso = ceetps (siembra el ConcursoCeetps hijo).
-        escalafonId: cargo!.escalafonId,
         // Propaga el tipo elegido en "Origen" al concurso que se genera.
+        // tipoConcurso NO se manda: se define en Etapa 1 del concurso.
         motivoConcurso: origenToMotivoConcurso(origen),
       }),
+      ...(!conConcurso && { destinoCargo }),
     }
   }
 
@@ -685,10 +685,8 @@ export function NuevaBajaPage() {
         // Si ya pasó por paso 2 y decidió, preservar la decisión
         ...(generaConcurso !== null && {
           generaConcurso,
-          ...(generaConcurso && {
-            tipoConcurso: tipoConcursoSeleccionado,
-            motivoConcurso: origenToMotivoConcurso(origen),
-          }),
+          ...(generaConcurso && { motivoConcurso: origenToMotivoConcurso(origen) }),
+          ...(!generaConcurso && { destinoCargo }),
         }),
       }
       if (modoEdicion) {
@@ -751,11 +749,8 @@ export function NuevaBajaPage() {
     try {
       const baja = await mutCrear.mutateAsync(conConcurso)
       if (conConcurso) {
-        const res = await apiClient.get<{ data: { id: string }[] }>('/api/v1/concursos-cph', {
-          params: { cargoId: baja.cargoId, limit: 1 },
-        })
-        const id = res.data.data[0]?.id
-        navigate(id ? `/concursos/cph/${id}/wizard` : '/concursos/cph')
+        // El concurso nace sin tipo (se define en Etapa 1): ir a la bandeja
+        navigate('/cargos/concurso')
       } else {
         navigate(sinConcurso ? '/cargos/baja' : '/cargos/alta-por-baja')
       }
@@ -766,15 +761,10 @@ export function NuevaBajaPage() {
         ? Object.values<string[]>(data.error.details).flat().join(' · ')
         : ''
       const msg = detalle || data?.message || data?.error?.message || e?.message || ''
-      // 409: ya existe concurso abierto para este cargo — ir directo a él
-      if (status === 409 && conConcurso && cargo) {
-        try {
-          const res = await apiClient.get<{ data: { id: string }[] }>('/api/v1/concursos-cph', {
-            params: { cargoId: cargo.id, limit: 1 },
-          })
-          const id = res.data.data[0]?.id
-          if (id) { navigate(`/concursos/cph/${id}/wizard`); return }
-        } catch { /* ignorar, mostrar error abajo */ }
+      // 409: ya existe concurso abierto para este cargo
+      if (status === 409 && conConcurso) {
+        navigate('/cargos/concurso')
+        return
       }
       setError(msg || 'No se pudo registrar la baja. Intentá de nuevo.')
     } finally {
@@ -1138,8 +1128,8 @@ export function NuevaBajaPage() {
             </div>
             <div className="p-6 space-y-3">
               {[
-                { val: true,  titulo: 'Sí, genera concurso CPH', desc: `Se registra la baja y se abre el seguimiento del concurso para el cargo ${cargo?.codigo ?? ''}.` },
-                { val: false, titulo: 'No, solo registrar la baja', desc: 'La baja queda registrada sin generar concurso. El cargo pasa a no vigente.' },
+                { val: true,  titulo: 'Sí, genera concurso', desc: `Se registra la baja y se abre el seguimiento del concurso para el cargo ${cargo?.codigo ?? ''}. El tipo (CPH o CEETPS) se define en la Etapa 1 del concurso.` },
+                { val: false, titulo: 'No, solo registrar la baja', desc: 'La baja queda registrada sin generar concurso.' },
               ].map(({ val, titulo, desc }) => (
                 <button
                   key={String(val)}
@@ -1168,26 +1158,36 @@ export function NuevaBajaPage() {
                   </div>
                 </button>
               ))}
-              {generaConcurso === true && (
-                <div className="mt-2 pl-2">
-                  <label className="label text-xs">Tipo de concurso</label>
-                  <div className="flex gap-3 mt-1">
-                    {(['cph', 'ceetps'] as TipoConcurso[]).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setTipoConcursoSeleccionado(t)}
-                        className={[
-                          'px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors uppercase',
-                          tipoConcursoSeleccionado === t
-                            ? 'border-secondary bg-secondary text-white'
-                            : 'border-gray-200 text-gray-600 hover:border-gray-300',
-                        ].join(' ')}
-                      >
-                        {t.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
+              {generaConcurso === false && (
+                <div className="mt-2 pl-2 space-y-2">
+                  <p className="text-xs font-semibold text-gray-600">¿Cómo queda el cargo?</p>
+                  {[
+                    { val: 'no_vigente' as const, titulo: 'No vigente', desc: 'El cargo se da de baja definitivamente.' },
+                    { val: 'vigente_vacante' as const, titulo: 'Vigente vacante', desc: 'El cargo sigue activo pero sin ocupante (ej. se cubrirá por designación directa).' },
+                  ].map(({ val, titulo, desc }) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setDestinoCargo(val)}
+                      className={[
+                        'w-full text-left p-3 rounded-lg border-2 transition-colors',
+                        destinoCargo === val ? 'border-navy bg-navy/5' : 'border-gray-200 hover:border-gray-300',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className={[
+                          'w-4 h-4 rounded-full border-2 shrink-0 mt-0.5 flex items-center justify-center',
+                          destinoCargo === val ? 'border-navy bg-navy' : 'border-gray-300',
+                        ].join(' ')}>
+                          {destinoCargo === val && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </span>
+                        <div>
+                          <p className="font-semibold text-sm text-gray-900">{titulo}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -1244,8 +1244,10 @@ export function NuevaBajaPage() {
                 <span className="text-xl">{generaConcurso ? '⚖️' : '📋'}</span>
                 <p className={`font-semibold text-sm ${generaConcurso ? 'text-blue-800' : 'text-gray-700'}`}>
                   {generaConcurso
-                    ? `Se registrará la baja y se abrirá el seguimiento del concurso ${tipoConcursoSeleccionado.toUpperCase()}`
-                    : 'Se registrará la baja sin generar concurso. El cargo pasará a no vigente.'}
+                    ? 'Se registrará la baja y se abrirá el seguimiento del concurso. El tipo (CPH o CEETPS) se define en la Etapa 1.'
+                    : destinoCargo === 'vigente_vacante'
+                      ? 'Se registrará la baja sin generar concurso. El cargo quedará vigente vacante.'
+                      : 'Se registrará la baja sin generar concurso. El cargo pasará a no vigente.'}
                 </p>
               </div>
 
@@ -1272,7 +1274,7 @@ export function NuevaBajaPage() {
               <div className="flex items-center gap-3">
                 {error && <span className="text-sm text-danger">{error}</span>}
                 <button className="btn-primary" disabled={guardando} onClick={() => confirmar(generaConcurso === true)}>
-                  {guardando ? 'Registrando...' : generaConcurso ? `Registrar baja e iniciar concurso ${tipoConcursoSeleccionado.toUpperCase()} →` : 'Registrar baja'}
+                  {guardando ? 'Registrando...' : generaConcurso ? 'Registrar baja e iniciar concurso →' : 'Registrar baja'}
                 </button>
               </div>
             </div>
