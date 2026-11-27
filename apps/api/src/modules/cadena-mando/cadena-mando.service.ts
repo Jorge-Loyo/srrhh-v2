@@ -44,13 +44,13 @@ export async function getCadenaMandoService(
   }>>`
     WITH RECURSIVE cadena AS (
       SELECT codigo_reparticion, desc_rep, tipo, padre, 0 AS nivel
-      FROM organigramas
+      FROM dim_organigrama
       WHERE codigo_reparticion = ${codigoRepa}
 
       UNION ALL
 
       SELECT o.codigo_reparticion, o.desc_rep, o.tipo, o.padre, c.nivel + 1
-      FROM organigramas o
+      FROM dim_organigrama o
       JOIN cadena c ON c.padre = o.codigo_reparticion
       WHERE c.padre IS NOT NULL AND c.padre != ''
     )

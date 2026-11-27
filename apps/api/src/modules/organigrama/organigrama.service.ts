@@ -247,11 +247,11 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       const subarbol = await prisma.$queryRaw<Array<{ codigo_reparticion: string }>>`
         WITH RECURSIVE desc_tree AS (
           SELECT codigo_reparticion, padre
-          FROM organigramas
+          FROM dim_organigrama
           WHERE padre = ${ministerio.codigoReparticion}
           UNION ALL
           SELECT o.codigo_reparticion, o.padre
-          FROM organigramas o
+          FROM dim_organigrama o
           JOIN desc_tree d ON o.padre = d.codigo_reparticion
         )
         SELECT codigo_reparticion FROM desc_tree
@@ -1533,7 +1533,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
            h.nombre AS hospital_nombre,
            cv.cargo_id, cv.cargo_codigo, cv.escalafon_nombre,
            (cv.cargo_id IS NULL) AS es_frio
-    FROM organigramas og
+    FROM dim_organigrama og
     LEFT JOIN hospitales h ON h.sigla = og.sigla
     LEFT JOIN cargo_vacante cv ON cv.codigo_repa = og.codigo_reparticion
     WHERE og.tipo <> 'REGIMEN'
@@ -1737,7 +1737,7 @@ export async function getCargosConduccionHuerfanosService() {
       AND c.deleted_at IS NULL
       AND c.codigo_repa IS NOT NULL
       AND NOT EXISTS (
-        SELECT 1 FROM organigramas og WHERE og.codigo_reparticion = c.codigo_repa
+        SELECT 1 FROM dim_organigrama og WHERE og.codigo_reparticion = c.codigo_repa
       )
     ORDER BY h.sigla, c.codigo
   `
